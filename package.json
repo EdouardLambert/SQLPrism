@@ -28,11 +28,6 @@
     "configuration": {
       "title": "SQL Prism",
       "properties": {
-        "sqlPrism.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable or disable SQL Prism highlighting globally."
-        },
         "sqlPrism.cte.enabled": {
           "type": "boolean",
           "default": true,
@@ -42,11 +37,6 @@
           "type": "boolean",
           "default": true,
           "description": "Show a subtle vertical line on the left side of each CTE block."
-        },
-        "sqlPrism.subtleBackground": {
-          "type": "boolean",
-          "default": false,
-          "description": "Apply a subtle background tint to highlighted entities."
         }
       }
     },

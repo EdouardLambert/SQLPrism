@@ -28,12 +28,6 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  const toggleCommandSub = vscode.commands.registerCommand('sqlPrism.toggle', async () => {
-    const config = vscode.workspace.getConfiguration('sqlPrism');
-    const currentState = config.get<boolean>('enabled', true);
-    await config.update('enabled', !currentState, vscode.ConfigurationTarget.Global);
-  });
-
   const toggleCteLineSub = vscode.commands.registerCommand('sqlPrism.toggleCteLine', async () => {
     const config = vscode.workspace.getConfiguration('sqlPrism');
     const currentState = config.get<boolean>('cte.showLine', true);
@@ -44,7 +38,6 @@ export function activate(context: vscode.ExtensionContext): void {
     activeEditorSub,
     textChangeSub,
     configChangeSub,
-    toggleCommandSub,
     toggleCteLineSub,
     { dispose: () => decorator?.dispose() }
   );

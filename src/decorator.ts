@@ -14,19 +14,10 @@ export class SqlEntityDecorator {
   public initializeDecorationPool(): void {
     this.disposeDecorations();
 
-    const config = vscode.workspace.getConfiguration('sqlPrism');
-    const useSubtleBg = config.get<boolean>('subtleBackground', false);
-
     const createTextDeco = (pair: ThemeColorPair) =>
       vscode.window.createTextEditorDecorationType({
-        light: {
-          color: pair.light,
-          backgroundColor: useSubtleBg ? pair.lightBg : undefined
-        },
-        dark: {
-          color: pair.dark,
-          backgroundColor: useSubtleBg ? pair.darkBg : undefined
-        }
+        light: { color: pair.light },
+        dark: { color: pair.dark }
       });
 
     for (const family of CTE_COLOR_FAMILIES) {
@@ -35,17 +26,12 @@ export class SqlEntityDecorator {
         this.textDecorationTypes.push(createTextDeco(shade));
       }
 
-      // 1px subtle vertical line with 30 hex opacity for a transparent look
       const lineDeco = vscode.window.createTextEditorDecorationType({
         isWholeLine: true,
         borderWidth: '0 0 0 1px',
         borderStyle: 'solid',
-        light: {
-          borderColor: `${family.base.light}30`
-        },
-        dark: {
-          borderColor: `${family.base.dark}30`
-        }
+        light: { borderColor: `${family.base.light}30` },
+        dark: { borderColor: `${family.base.dark}30` }
       });
       this.cteLineDecorationTypes.push(lineDeco);
     }
@@ -71,11 +57,10 @@ export class SqlEntityDecorator {
     }
 
     const config = vscode.workspace.getConfiguration('sqlPrism');
-    const isGloballyEnabled = config.get<boolean>('enabled', true);
     const isCteEnabled = config.get<boolean>('cte.enabled', true);
     const showCteLine = config.get<boolean>('cte.showLine', true);
 
-    if (!isGloballyEnabled || !isCteEnabled) {
+    if (!isCteEnabled) {
       this.clearDecorations(editor);
       return;
     }
