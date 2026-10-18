@@ -16,6 +16,12 @@
     "url": "https://github.com/EdouardLambert/SQLPrism"
   },
   "license": "GPL-3.0",
+  "files": [
+    "out",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "activationEvents": [
     "onLanguage:sql",
     "onLanguage:jinja-sql",
