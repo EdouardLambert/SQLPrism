@@ -34,11 +34,18 @@ export function activate(context: vscode.ExtensionContext): void {
     await config.update('cte.showLine', !currentState, vscode.ConfigurationTarget.Global);
   });
 
+  const toggleTypesSub = vscode.commands.registerCommand('sqlPrism.toggleTypes', async () => {
+    const config = vscode.workspace.getConfiguration('sqlPrism');
+    const currentState = config.get<boolean>('types.enabled', true);
+    await config.update('types.enabled', !currentState, vscode.ConfigurationTarget.Global);
+  });
+
   context.subscriptions.push(
     activeEditorSub,
     textChangeSub,
     configChangeSub,
     toggleCteLineSub,
+    toggleTypesSub,
     { dispose: () => decorator?.dispose() }
   );
 }

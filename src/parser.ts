@@ -1,9 +1,15 @@
-import { SHADES_PER_FAMILY, SLOTS_PER_FAMILY } from './palette';
+import { SHADES_PER_FAMILY, SLOTS_PER_FAMILY, TypeCategoryIndex } from './palette';
 
 export interface HighlightMatch {
   startOffset: number;
   endOffset: number;
   colorSlotIndex: number;
+}
+
+export interface TypeHighlightMatch {
+  startOffset: number;
+  endOffset: number;
+  categoryIndex: number;
 }
 
 export interface CteBlock {
@@ -16,6 +22,7 @@ export interface CteBlock {
 export interface ParseResult {
   matches: HighlightMatch[];
   cteBlocks: CteBlock[];
+  typeMatches: TypeHighlightMatch[];
 }
 
 const SQL_RESERVED_KEYWORDS = new Set([
@@ -26,10 +33,99 @@ const SQL_RESERVED_KEYWORDS = new Set([
   'values', 'set', 'update', 'delete', 'insert', 'create', 'table',
   'view', 'temp', 'temporary', 'when', 'then', 'else', 'end', 'case',
   'and', 'or', 'not', 'in', 'is', 'null', 'like', 'ilike', 'between',
-  'exists', 'cast', 'over', 'partition', 'qualify', 'window', 'lateral',
-  'unnest', 'pivot', 'unpivot', 'sample', 'tablesample', 'for', 'asc',
-  'desc', 'nulls', 'first', 'last', 'true', 'false'
+  'exists', 'cast', 'try_cast', 'safe_cast', 'over', 'partition',
+  'qualify', 'window', 'lateral', 'unnest', 'pivot', 'unpivot',
+  'sample', 'tablesample', 'for', 'asc', 'desc', 'nulls', 'first',
+  'last', 'true', 'false'
 ]);
+
+const SQL_DATA_TYPE_MAP = new Map<string, TypeCategoryIndex>([
+  // Integer types
+  ['int', TypeCategoryIndex.Integer],
+  ['integer', TypeCategoryIndex.Integer],
+  ['bigint', TypeCategoryIndex.Integer],
+  ['smallint', TypeCategoryIndex.Integer],
+  ['tinyint', TypeCategoryIndex.Integer],
+  ['hugeint', TypeCategoryIndex.Integer],
+  ['int2', TypeCategoryIndex.Integer],
+  ['int4', TypeCategoryIndex.Integer],
+  ['int8', TypeCategoryIndex.Integer],
+  ['int16', TypeCategoryIndex.Integer],
+  ['int32', TypeCategoryIndex.Integer],
+  ['int64', TypeCategoryIndex.Integer],
+  ['int128', TypeCategoryIndex.Integer],
+  ['ubigint', TypeCategoryIndex.Integer],
+  ['uinteger', TypeCategoryIndex.Integer],
+  ['usmallint', TypeCategoryIndex.Integer],
+  ['utinyint', TypeCategoryIndex.Integer],
+  ['serial', TypeCategoryIndex.Integer],
+  ['bigserial', TypeCategoryIndex.Integer],
+
+  // Float & Precision types
+  ['float', TypeCategoryIndex.Float],
+  ['double', TypeCategoryIndex.Float],
+  ['double precision', TypeCategoryIndex.Float],
+  ['real', TypeCategoryIndex.Float],
+  ['decimal', TypeCategoryIndex.Float],
+  ['numeric', TypeCategoryIndex.Float],
+  ['dec', TypeCategoryIndex.Float],
+  ['float4', TypeCategoryIndex.Float],
+  ['float8', TypeCategoryIndex.Float],
+  ['number', TypeCategoryIndex.Float],
+
+  // Textual types
+  ['varchar', TypeCategoryIndex.Text],
+  ['char', TypeCategoryIndex.Text],
+  ['character', TypeCategoryIndex.Text],
+  ['character varying', TypeCategoryIndex.Text],
+  ['text', TypeCategoryIndex.Text],
+  ['string', TypeCategoryIndex.Text],
+  ['nvarchar', TypeCategoryIndex.Text],
+  ['nchar', TypeCategoryIndex.Text],
+  ['bpchar', TypeCategoryIndex.Text],
+
+  // Date & Time types
+  ['date', TypeCategoryIndex.DateTime],
+  ['timestamp', TypeCategoryIndex.DateTime],
+  ['timestamptz', TypeCategoryIndex.DateTime],
+  ['timestamp without time zone', TypeCategoryIndex.DateTime],
+  ['timestamp with time zone', TypeCategoryIndex.DateTime],
+  ['datetime', TypeCategoryIndex.DateTime],
+  ['time', TypeCategoryIndex.DateTime],
+  ['timetz', TypeCategoryIndex.DateTime],
+  ['time without time zone', TypeCategoryIndex.DateTime],
+  ['time with time zone', TypeCategoryIndex.DateTime],
+  ['interval', TypeCategoryIndex.DateTime],
+  ['timestamp_ntz', TypeCategoryIndex.DateTime],
+  ['timestamp_ltz', TypeCategoryIndex.DateTime],
+  ['timestamp_tz', TypeCategoryIndex.DateTime],
+
+  // Logical / Boolean types
+  ['bool', TypeCategoryIndex.Boolean],
+  ['boolean', TypeCategoryIndex.Boolean],
+
+  // Complex & Spatial types
+  ['json', TypeCategoryIndex.Complex],
+  ['jsonb', TypeCategoryIndex.Complex],
+  ['array', TypeCategoryIndex.Complex],
+  ['struct', TypeCategoryIndex.Complex],
+  ['map', TypeCategoryIndex.Complex],
+  ['uuid', TypeCategoryIndex.Complex],
+  ['bytea', TypeCategoryIndex.Complex],
+  ['blob', TypeCategoryIndex.Complex],
+  ['variant', TypeCategoryIndex.Complex],
+  ['object', TypeCategoryIndex.Complex],
+  ['geometry', TypeCategoryIndex.Complex],
+  ['geography', TypeCategoryIndex.Complex]
+]);
+
+const MULTI_WORD_TYPE_PATTERN =
+  'character\\s+varying|double\\s+precision|timestamp\\s+with(?:out)?\\s+time\\s+zone|time\\s+with(?:out)?\\s+time\\s+zone|[a-zA-Z_][a-zA-Z0-9_]*';
+
+const TYPE_SPEC_REGEX = new RegExp(
+  `^(${MULTI_WORD_TYPE_PATTERN})(\\s*\\(\\s*[^()]*\\s*\\))?(\\s*\\[\\s*\\])*`,
+  'i'
+);
 
 const JINJA_PLACEHOLDER_PREFIX = '__JINJA_';
 
@@ -61,6 +157,91 @@ function findMatchingCloseParen(sanitized: string, openParenOffset: number): num
     }
   }
   return -1;
+}
+
+/**
+ * Finds the top-level "AS <type>" inside a CAST(...) or TRY_CAST(...) body.
+ */
+function findTopLevelAsAfterOffset(body: string): number {
+  let depth = 0;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      if (depth > 0) {
+        depth--;
+      }
+    } else if (depth === 0) {
+      const remaining = body.slice(i);
+      const asMatch = remaining.match(/^\bAS\s+/i);
+      if (asMatch && (i === 0 || !/[a-zA-Z0-9_]/.test(body[i - 1]))) {
+        return i + asMatch[0].length;
+      }
+    }
+  }
+  return -1;
+}
+
+function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
+  const typeMatches: TypeHighlightMatch[] = [];
+  const recordedTypeSpans = new Set<string>();
+
+  const addTypeMatch = (startOffset: number, endOffset: number, categoryIndex: number) => {
+    const key = `${startOffset}:${endOffset}`;
+    if (!recordedTypeSpans.has(key)) {
+      recordedTypeSpans.add(key);
+      typeMatches.push({ startOffset, endOffset, categoryIndex });
+    }
+  };
+
+  const tryMatchTypeAt = (textSlice: string, baseOffset: number) => {
+    const specMatch = textSlice.match(TYPE_SPEC_REGEX);
+    if (!specMatch) {
+      return;
+    }
+
+    const rawTypeName = specMatch[1];
+    const normalizedTypeName = rawTypeName.replace(/\s+/g, ' ').toLowerCase();
+    const categoryIndex = SQL_DATA_TYPE_MAP.get(normalizedTypeName);
+
+    if (categoryIndex !== undefined) {
+      const fullMatchedLength = specMatch[0].length;
+      addTypeMatch(baseOffset, baseOffset + fullMatchedLength, categoryIndex);
+    }
+  };
+
+  // 1. Detect Postgres / DuckDB / Snowflake "::TYPE" casts
+  const doubleColonRegex = /::\s*/g;
+  let dcMatch: RegExpExecArray | null;
+
+  while ((dcMatch = doubleColonRegex.exec(sanitized)) !== null) {
+    const typeStartOffset = dcMatch.index + dcMatch[0].length;
+    const remaining = sanitized.slice(typeStartOffset);
+    tryMatchTypeAt(remaining, typeStartOffset);
+  }
+
+  // 2. Detect standard "CAST(expr AS TYPE)", "TRY_CAST(expr AS TYPE)", "SAFE_CAST(expr AS TYPE)"
+  const castFuncRegex = /\b(?:CAST|TRY_CAST|SAFE_CAST)\s*\(/gi;
+  let cfMatch: RegExpExecArray | null;
+
+  while ((cfMatch = castFuncRegex.exec(sanitized)) !== null) {
+    const openParenOffset = cfMatch.index + cfMatch[0].length - 1;
+    const closeParenOffset = findMatchingCloseParen(sanitized, openParenOffset);
+    if (closeParenOffset === -1) {
+      continue;
+    }
+
+    const innerBody = sanitized.slice(openParenOffset + 1, closeParenOffset);
+    const typeRelOffset = findTopLevelAsAfterOffset(innerBody);
+    if (typeRelOffset !== -1) {
+      const typeAbsOffset = openParenOffset + 1 + typeRelOffset;
+      const typeSlice = innerBody.slice(typeRelOffset);
+      tryMatchTypeAt(typeSlice, typeAbsOffset);
+    }
+  }
+
+  return typeMatches;
 }
 
 function getBaseSlot(familyIndex: number): number {
@@ -180,14 +361,9 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
     withStartRegex.lastIndex = cursor;
   }
 
-  // Record CTE headers, parentheses, and CTE blocks
   for (const cte of cteSpans) {
     const baseSlot = getBaseSlot(cte.familyIndex);
-    
-    // Highlight CTE name
     addMatch(cte.nameStartOffset, cte.nameEndOffset, baseSlot);
-    
-    // Highlight the opening '(' and closing ')'
     addMatch(cte.openParenOffset, cte.openParenOffset + 1, baseSlot);
     addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, baseSlot);
 
@@ -334,5 +510,7 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
   const outerSql = outerSqlChars.join('');
   parseRegion(outerSql, 0, null);
 
-  return { matches, cteBlocks };
+  const typeMatches = parseDataTypes(sanitized);
+
+  return { matches, cteBlocks, typeMatches };
 }

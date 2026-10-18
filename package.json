@@ -2,8 +2,8 @@
   "name": "sql-prism",
   "displayName": "SQL Prism",
   "icon": "./icon.png",
-  "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, and CTE scope lines.",
-  "version": "0.2.0",
+  "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, CTE scope lines, and semantic data type highlighting.",
+  "version": "0.3.0",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
@@ -45,17 +45,22 @@
           "type": "boolean",
           "default": true,
           "description": "Show a subtle vertical line on the left side of each CTE block."
+        },
+        "sqlPrism.types.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic coloring for SQL data types in casts (:: and CAST/TRY_CAST)."
         }
       }
     },
     "commands": [
       {
-        "command": "sqlPrism.toggle",
-        "title": "SQL Prism: Toggle Highlighting"
-      },
-      {
         "command": "sqlPrism.toggleCteLine",
         "title": "SQL Prism: Toggle CTE Left Line"
+      },
+      {
+        "command": "sqlPrism.toggleTypes",
+        "title": "SQL Prism: Toggle Type Coloring"
       }
     ]
   },

@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import { CTE_COLOR_FAMILIES, ThemeColorPair } from './palette';
+import { CTE_COLOR_FAMILIES, TYPE_PALETTE, ThemeColorPair } from './palette';
 import { parseSqlDocument } from './parser';
 
 export class SqlEntityDecorator {
   private textDecorationTypes: vscode.TextEditorDecorationType[] = [];
   private cteLineDecorationTypes: vscode.TextEditorDecorationType[] = [];
+  private typeDecorationTypes: vscode.TextEditorDecorationType[] = [];
   private debounceTimer: NodeJS.Timeout | undefined;
 
   constructor() {
@@ -35,6 +36,10 @@ export class SqlEntityDecorator {
       });
       this.cteLineDecorationTypes.push(lineDeco);
     }
+
+    for (const typeColor of TYPE_PALETTE) {
+      this.typeDecorationTypes.push(createTextDeco(typeColor));
+    }
   }
 
   public triggerUpdate(editor: vscode.TextEditor | undefined, immediate = false): void {
@@ -59,22 +64,40 @@ export class SqlEntityDecorator {
     const config = vscode.workspace.getConfiguration('sqlPrism');
     const isCteEnabled = config.get<boolean>('cte.enabled', true);
     const showCteLine = config.get<boolean>('cte.showLine', true);
+    const isTypesEnabled = config.get<boolean>('types.enabled', true);
 
-    if (!isCteEnabled) {
+    if (!isCteEnabled && !isTypesEnabled) {
       this.clearDecorations(editor);
       return;
     }
 
     const text = editor.document.getText();
-    const { matches, cteBlocks } = parseSqlDocument(text, CTE_COLOR_FAMILIES.length);
+    const { matches, cteBlocks, typeMatches } = parseSqlDocument(text, CTE_COLOR_FAMILIES.length);
 
+    // 1. CTE & Entity text decorations + left vertical lines
     const textRangesBySlot: vscode.Range[][] = this.textDecorationTypes.map(() => []);
+    const lineRangesByFamily: vscode.Range[][] = this.cteLineDecorationTypes.map(() => []);
 
-    for (const match of matches) {
-      if (match.colorSlotIndex >= 0 && match.colorSlotIndex < this.textDecorationTypes.length) {
-        const startPos = editor.document.positionAt(match.startOffset);
-        const endPos = editor.document.positionAt(match.endOffset);
-        textRangesBySlot[match.colorSlotIndex].push(new vscode.Range(startPos, endPos));
+    if (isCteEnabled) {
+      for (const match of matches) {
+        if (match.colorSlotIndex >= 0 && match.colorSlotIndex < this.textDecorationTypes.length) {
+          const startPos = editor.document.positionAt(match.startOffset);
+          const endPos = editor.document.positionAt(match.endOffset);
+          textRangesBySlot[match.colorSlotIndex].push(new vscode.Range(startPos, endPos));
+        }
+      }
+
+      if (showCteLine) {
+        for (const block of cteBlocks) {
+          const startLine = editor.document.positionAt(block.nameStartOffset).line;
+          const endLine = editor.document.positionAt(block.closeParenOffset).line;
+
+          if (endLine > startLine + 1) {
+            lineRangesByFamily[block.familyIndex].push(
+              new vscode.Range(startLine + 1, 0, endLine - 1, 0)
+            );
+          }
+        }
       }
     }
 
@@ -82,23 +105,25 @@ export class SqlEntityDecorator {
       editor.setDecorations(this.textDecorationTypes[i], textRangesBySlot[i]);
     }
 
-    const lineRangesByFamily: vscode.Range[][] = this.cteLineDecorationTypes.map(() => []);
+    for (let i = 0; i < this.cteLineDecorationTypes.length; i++) {
+      editor.setDecorations(this.cteLineDecorationTypes[i], lineRangesByFamily[i]);
+    }
 
-    if (showCteLine) {
-      for (const block of cteBlocks) {
-        const startLine = editor.document.positionAt(block.nameStartOffset).line;
-        const endLine = editor.document.positionAt(block.closeParenOffset).line;
+    // 2. Semantic SQL Data Type decorations
+    const typeRangesByCategory: vscode.Range[][] = this.typeDecorationTypes.map(() => []);
 
-        if (endLine > startLine + 1) {
-          lineRangesByFamily[block.familyIndex].push(
-            new vscode.Range(startLine + 1, 0, endLine - 1, 0)
-          );
+    if (isTypesEnabled) {
+      for (const typeMatch of typeMatches) {
+        if (typeMatch.categoryIndex >= 0 && typeMatch.categoryIndex < this.typeDecorationTypes.length) {
+          const startPos = editor.document.positionAt(typeMatch.startOffset);
+          const endPos = editor.document.positionAt(typeMatch.endOffset);
+          typeRangesByCategory[typeMatch.categoryIndex].push(new vscode.Range(startPos, endPos));
         }
       }
     }
 
-    for (let i = 0; i < this.cteLineDecorationTypes.length; i++) {
-      editor.setDecorations(this.cteLineDecorationTypes[i], lineRangesByFamily[i]);
+    for (let i = 0; i < this.typeDecorationTypes.length; i++) {
+      editor.setDecorations(this.typeDecorationTypes[i], typeRangesByCategory[i]);
     }
   }
 
@@ -111,6 +136,9 @@ export class SqlEntityDecorator {
     }
     for (const lineDeco of this.cteLineDecorationTypes) {
       editor.setDecorations(lineDeco, []);
+    }
+    for (const typeDeco of this.typeDecorationTypes) {
+      editor.setDecorations(typeDeco, []);
     }
   }
 
@@ -135,8 +163,12 @@ export class SqlEntityDecorator {
     for (const lineDeco of this.cteLineDecorationTypes) {
       lineDeco.dispose();
     }
+    for (const typeDeco of this.typeDecorationTypes) {
+      typeDeco.dispose();
+    }
     this.textDecorationTypes = [];
     this.cteLineDecorationTypes = [];
+    this.typeDecorationTypes = [];
   }
 
   public dispose(): void {
