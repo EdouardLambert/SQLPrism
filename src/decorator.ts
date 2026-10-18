@@ -71,12 +71,15 @@ export class SqlEntityDecorator {
     }
 
     const config = vscode.workspace.getConfiguration('sqlPrism');
-    if (!config.get<boolean>('enabled', true)) {
+    const isGloballyEnabled = config.get<boolean>('enabled', true);
+    const isCteEnabled = config.get<boolean>('cte.enabled', true);
+    const showCteLine = config.get<boolean>('cte.showLine', true);
+
+    if (!isGloballyEnabled || !isCteEnabled) {
       this.clearDecorations(editor);
       return;
     }
 
-    const showCteLine = config.get<boolean>('showCteLine', true);
     const text = editor.document.getText();
     const { matches, cteBlocks } = parseSqlDocument(text, CTE_COLOR_FAMILIES.length);
 

@@ -26,12 +26,17 @@
         "sqlPrism.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable or disable SQL Prism highlighting."
+          "description": "Enable or disable SQL Prism highlighting globally."
         },
-        "sqlPrism.showCteLine": {
+        "sqlPrism.cte.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show a colored vertical line on the left side of each CTE, from its name to its closing parenthesis."
+          "description": "Enable hierarchical coloring for CTEs, inner tables, and parentheses."
+        },
+        "sqlPrism.cte.showLine": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a subtle vertical line on the left side of each CTE block."
         },
         "sqlPrism.subtleBackground": {
           "type": "boolean",

@@ -36,8 +36,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const toggleCteLineSub = vscode.commands.registerCommand('sqlPrism.toggleCteLine', async () => {
     const config = vscode.workspace.getConfiguration('sqlPrism');
-    const currentState = config.get<boolean>('showCteLine', true);
-    await config.update('showCteLine', !currentState, vscode.ConfigurationTarget.Global);
+    const currentState = config.get<boolean>('cte.showLine', true);
+    await config.update('cte.showLine', !currentState, vscode.ConfigurationTarget.Global);
   });
 
   context.subscriptions.push(
