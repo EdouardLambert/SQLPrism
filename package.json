@@ -3,8 +3,8 @@
   "displayName": "SQL Prism",
   "icon": "./icon.png",
   "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, CTE scope lines, and semantic data type highlighting.",
-  "version": "0.3.0",
-  "publisher": "local",
+  "version": "0.3.1",
+  "publisher": "elambert",
   "engines": {
     "vscode": "^1.85.0"
   },
