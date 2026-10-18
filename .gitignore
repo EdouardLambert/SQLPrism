@@ -1,5 +1,25 @@
 .vscode/
 .venv/
 
+# Node dependencies
 node_modules/
+
+# Compilation output
 out/
+dist/
+
+# VS Code extension packaging
+*.vsix
+
+# Test coverage and IDE folders
+.vscode-test/
+.nyc_output/
+coverage/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
