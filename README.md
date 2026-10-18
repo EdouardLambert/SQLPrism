@@ -30,4 +30,4 @@ This extension contributes the following configurable settings under the `Cte` c
 ```bash
 npm install
 npx @vscode/vsce package
-code --install-extension sql-prism-*.vsix
+code --install-extension <generated-vsix-file>

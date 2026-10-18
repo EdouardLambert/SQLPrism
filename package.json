@@ -1,8 +1,9 @@
 {
   "name": "sql-prism",
   "displayName": "SQL Prism",
+  "icon": "./icon.png",
   "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, and CTE scope lines.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
@@ -18,8 +19,9 @@
   "license": "GPL-3.0",
   "files": [
     "out",
-    "README.md",
+    "icon.png",
     "LICENSE",
+    "README.md",
     "package.json"
   ],
   "activationEvents": [
