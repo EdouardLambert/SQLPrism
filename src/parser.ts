@@ -33,10 +33,6 @@ const SQL_RESERVED_KEYWORDS = new Set([
 
 const JINJA_PLACEHOLDER_PREFIX = '__JINJA_';
 
-/**
- * Replaces comments, string literals, and Jinja blocks with same-length placeholders
- * so character offsets remain 100% identical to the source document.
- */
 export function sanitizeSql(rawSql: string): string {
   const tokenRegex = /\/\*[\s\S]*?\*\/|--[^\r\n]*|'(?:''|[^'])*'|\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g;
 
@@ -51,9 +47,6 @@ export function sanitizeSql(rawSql: string): string {
   });
 }
 
-/**
- * Finds the exact offset of the matching closing parenthesis ')' for an opening '(' at openParenOffset.
- */
 function findMatchingCloseParen(sanitized: string, openParenOffset: number): number {
   let depth = 0;
   for (let i = openParenOffset; i < sanitized.length; i++) {
@@ -84,7 +77,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
   const cteBlocks: CteBlock[] = [];
   const recordedSpans = new Set<string>();
 
-  // Maps lowercase CTE name -> familyIndex (0 .. familyCount - 1)
   const cteFamilyMap = new Map<string, number>();
   let nextFamilyCounter = 0;
 
@@ -107,7 +99,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
     }
   };
 
-  // Step 1: Detect all CTE declarations and their exact parenthesis spans
   interface InternalCteSpan {
     name: string;
     familyIndex: number;
@@ -149,7 +140,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
       closeParenOffset
     });
 
-    // Follow chained CTEs: ", next_cte AS ("
     let cursor = closeParenOffset + 1;
     while (cursor < sanitized.length) {
       const remaining = sanitized.slice(cursor);
@@ -190,9 +180,17 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
     withStartRegex.lastIndex = cursor;
   }
 
-  // Record CTE headers and CTE blocks for left-border decoration
+  // Record CTE headers, parentheses, and CTE blocks
   for (const cte of cteSpans) {
-    addMatch(cte.nameStartOffset, cte.nameEndOffset, getBaseSlot(cte.familyIndex));
+    const baseSlot = getBaseSlot(cte.familyIndex);
+    
+    // Highlight CTE name
+    addMatch(cte.nameStartOffset, cte.nameEndOffset, baseSlot);
+    
+    // Highlight the opening '(' and closing ')'
+    addMatch(cte.openParenOffset, cte.openParenOffset + 1, baseSlot);
+    addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, baseSlot);
+
     cteBlocks.push({
       name: cte.name,
       familyIndex: cte.familyIndex,
@@ -201,9 +199,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
     });
   }
 
-  /**
-   * Helper to parse a specific SQL slice (either inside a CTE body or in the outer query)
-   */
   const parseRegion = (regionText: string, regionStartOffset: number, enclosingCteFamily: number | null) => {
     const localSlotMap = new Map<string, number>();
     let localShadeCounter = 0;
@@ -211,7 +206,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
     const assignLocalEntitySlot = (entityName: string): number => {
       const lower = entityName.toLowerCase();
 
-      // If this entity is a known CTE, always preserve the CTE's own base color
       const existingCteFamily = cteFamilyMap.get(lower);
       if (existingCteFamily !== undefined) {
         return getBaseSlot(existingCteFamily);
@@ -224,11 +218,9 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
 
       let slot: number;
       if (enclosingCteFamily !== null) {
-        // Inside a CTE: assign a derived shade of the enclosing CTE's base color
         slot = getShadeSlot(enclosingCteFamily, localShadeCounter);
         localShadeCounter++;
       } else {
-        // Outside any CTE (main query table not matching a CTE): assign a derived shade of the next family
         const fallbackFamily = nextFamilyCounter % familyCount;
         slot = getShadeSlot(fallbackFamily, localShadeCounter);
         localShadeCounter++;
@@ -238,7 +230,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
       return slot;
     };
 
-    // Pass A: FROM / JOIN targets and their aliases within this region
     const fromJoinRegex = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:\s+AS\s+([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
     let fjMatch: RegExpExecArray | null;
 
@@ -260,7 +251,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
 
       if (!isJinjaTarget && !SQL_RESERVED_KEYWORDS.has(baseTableName.toLowerCase())) {
         if (enclosingCteFamily !== null) {
-          // Inside a CTE: if the table is NOT another CTE, it gets a derived shade of this CTE
           const referencedCteFamily = cteFamilyMap.get(baseTableName.toLowerCase());
           if (referencedCteFamily !== undefined) {
             targetSlot = getBaseSlot(referencedCteFamily);
@@ -286,8 +276,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
 
         let aliasSlot: number;
         if (enclosingCteFamily !== null) {
-          // Inside a CTE: any alias declared on a FROM/JOIN gets a derived shade of the CTE
-          // (or shares the shade of its source table in the same FROM/JOIN clause)
           if (targetSlot !== undefined && !cteFamilyMap.has(baseTableName.toLowerCase())) {
             aliasSlot = targetSlot;
           } else {
@@ -307,7 +295,6 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
       }
     }
 
-    // Pass B: Qualified column references (entity.column or entity.*) within this region
     const columnRefRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\.(?:[a-zA-Z_][a-zA-Z0-9_]*|\*)/g;
     let colMatch: RegExpExecArray | null;
 
@@ -330,14 +317,12 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
     }
   };
 
-  // Step 2: Parse inside each CTE body using that CTE's color family for derived shades
   for (const cte of cteSpans) {
     const bodyStart = cte.openParenOffset + 1;
     const bodyText = sanitized.slice(bodyStart, cte.closeParenOffset);
     parseRegion(bodyText, bodyStart, cte.familyIndex);
   }
 
-  // Step 3: Build a version of sanitized with CTE spans blanked out to parse the outer/final query
   let outerSqlChars = sanitized.split('');
   for (const cte of cteSpans) {
     for (let i = cte.headerStartOffset; i <= cte.closeParenOffset; i++) {

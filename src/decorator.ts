@@ -35,16 +35,16 @@ export class SqlEntityDecorator {
         this.textDecorationTypes.push(createTextDeco(shade));
       }
 
-      // 1px subtle vertical line matching native VS Code indent guides (55% opacity via '8C' alpha)
+      // 1px subtle vertical line with 30 hex opacity for a transparent look
       const lineDeco = vscode.window.createTextEditorDecorationType({
         isWholeLine: true,
         borderWidth: '0 0 0 1px',
         borderStyle: 'solid',
         light: {
-          borderColor: `${family.base.light}8C`
+          borderColor: `${family.base.light}30`
         },
         dark: {
-          borderColor: `${family.base.dark}8C`
+          borderColor: `${family.base.dark}30`
         }
       });
       this.cteLineDecorationTypes.push(lineDeco);
@@ -80,7 +80,6 @@ export class SqlEntityDecorator {
     const text = editor.document.getText();
     const { matches, cteBlocks } = parseSqlDocument(text, CTE_COLOR_FAMILIES.length);
 
-    // 1. Apply text colors (CTE base colors + inner table derived shades)
     const textRangesBySlot: vscode.Range[][] = this.textDecorationTypes.map(() => []);
 
     for (const match of matches) {
@@ -95,7 +94,6 @@ export class SqlEntityDecorator {
       editor.setDecorations(this.textDecorationTypes[i], textRangesBySlot[i]);
     }
 
-    // 2. Apply thin CTE guide line on inner lines (between CTE header and closing parenthesis)
     const lineRangesByFamily: vscode.Range[][] = this.cteLineDecorationTypes.map(() => []);
 
     if (showCteLine) {
@@ -103,8 +101,6 @@ export class SqlEntityDecorator {
         const startLine = editor.document.positionAt(block.nameStartOffset).line;
         const endLine = editor.document.positionAt(block.closeParenOffset).line;
 
-        // Draw only on the indented body lines so it connects the CTE name to ')'
-        // without striking through characters at column 0
         if (endLine > startLine + 1) {
           lineRangesByFamily[block.familyIndex].push(
             new vscode.Range(startLine + 1, 0, endLine - 1, 0)
