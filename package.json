@@ -1,0 +1,64 @@
+{
+  "name": "sql-prism",
+  "displayName": "SQL Prism",
+  "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, and CTE scope lines.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:sql",
+    "onLanguage:jinja-sql",
+    "onLanguage:dbt-sql",
+    "onLanguage:postgres",
+    "onLanguage:snowflake-sql"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "SQL Prism",
+      "properties": {
+        "sqlPrism.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable SQL Prism highlighting."
+        },
+        "sqlPrism.showCteLine": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a colored vertical line on the left side of each CTE, from its name to its closing parenthesis."
+        },
+        "sqlPrism.subtleBackground": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply a subtle background tint to highlighted entities."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "sqlPrism.toggle",
+        "title": "SQL Prism: Toggle Highlighting"
+      },
+      {
+        "command": "sqlPrism.toggleCteLine",
+        "title": "SQL Prism: Toggle CTE Left Line"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
