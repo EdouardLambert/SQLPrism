@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CTE_COLOR_FAMILIES, TYPE_PALETTE, ThemeColorPair } from './palette';
+import { CTE_COLOR_FAMILIES, DATA_TYPE_PALETTE, ThemeColorPair } from './palette';
 import { parseSqlDocument } from './parser';
 
 export class SqlEntityDecorator {
@@ -37,7 +37,7 @@ export class SqlEntityDecorator {
       this.cteLineDecorationTypes.push(lineDeco);
     }
 
-    for (const typeColor of TYPE_PALETTE) {
+    for (const typeColor of DATA_TYPE_PALETTE) {
       this.typeDecorationTypes.push(createTextDeco(typeColor));
     }
   }
