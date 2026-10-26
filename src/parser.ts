@@ -1,9 +1,9 @@
-import { SHADES_PER_FAMILY, SLOTS_PER_FAMILY, TypeCategoryIndex } from './palette';
+import { TypeCategoryIndex } from './palette';
 
 export interface HighlightMatch {
   startOffset: number;
   endOffset: number;
-  colorSlotIndex: number;
+  colorIndex: number;
 }
 
 export interface TypeHighlightMatch {
@@ -14,7 +14,7 @@ export interface TypeHighlightMatch {
 
 export interface CteBlock {
   name: string;
-  familyIndex: number;
+  colorIndex: number;
   nameStartOffset: number;
   closeParenOffset: number;
 }
@@ -159,9 +159,6 @@ function findMatchingCloseParen(sanitized: string, openParenOffset: number): num
   return -1;
 }
 
-/**
- * Finds the top-level "AS <type>" inside a CAST(...) or TRY_CAST(...) body.
- */
 function findTopLevelAsAfterOffset(body: string): number {
   let depth = 0;
   for (let i = 0; i < body.length; i++) {
@@ -211,7 +208,6 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
     }
   };
 
-  // 1. Detect Postgres / DuckDB / Snowflake "::TYPE" casts
   const doubleColonRegex = /::\s*/g;
   let dcMatch: RegExpExecArray | null;
 
@@ -221,7 +217,6 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
     tryMatchTypeAt(remaining, typeStartOffset);
   }
 
-  // 2. Detect standard "CAST(expr AS TYPE)", "TRY_CAST(expr AS TYPE)", "SAFE_CAST(expr AS TYPE)"
   const castFuncRegex = /\b(?:CAST|TRY_CAST|SAFE_CAST)\s*\(/gi;
   let cfMatch: RegExpExecArray | null;
 
@@ -244,45 +239,37 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
   return typeMatches;
 }
 
-function getBaseSlot(familyIndex: number): number {
-  return familyIndex * SLOTS_PER_FAMILY;
-}
-
-function getShadeSlot(familyIndex: number, shadeCounter: number): number {
-  return familyIndex * SLOTS_PER_FAMILY + 1 + (shadeCounter % SHADES_PER_FAMILY);
-}
-
-export function parseSqlDocument(rawSql: string, familyCount: number): ParseResult {
+export function parseSqlDocument(rawSql: string, paletteSize: number): ParseResult {
   const sanitized = sanitizeSql(rawSql);
   const matches: HighlightMatch[] = [];
   const cteBlocks: CteBlock[] = [];
   const recordedSpans = new Set<string>();
 
-  const cteFamilyMap = new Map<string, number>();
-  let nextFamilyCounter = 0;
+  const cteColorMap = new Map<string, number>();
+  let nextColorCounter = 0;
 
-  const getOrAssignCteFamily = (cteName: string): number => {
+  const getOrAssignCteColor = (cteName: string): number => {
     const key = cteName.toLowerCase();
-    let familyIdx = cteFamilyMap.get(key);
-    if (familyIdx === undefined) {
-      familyIdx = nextFamilyCounter % familyCount;
-      cteFamilyMap.set(key, familyIdx);
-      nextFamilyCounter++;
+    let colorIdx = cteColorMap.get(key);
+    if (colorIdx === undefined) {
+      colorIdx = nextColorCounter % paletteSize;
+      cteColorMap.set(key, colorIdx);
+      nextColorCounter++;
     }
-    return familyIdx;
+    return colorIdx;
   };
 
-  const addMatch = (startOffset: number, endOffset: number, colorSlotIndex: number) => {
+  const addMatch = (startOffset: number, endOffset: number, colorIndex: number) => {
     const spanKey = `${startOffset}:${endOffset}`;
     if (!recordedSpans.has(spanKey)) {
       recordedSpans.add(spanKey);
-      matches.push({ startOffset, endOffset, colorSlotIndex });
+      matches.push({ startOffset, endOffset, colorIndex });
     }
   };
 
   interface InternalCteSpan {
     name: string;
-    familyIndex: number;
+    colorIndex: number;
     headerStartOffset: number;
     nameStartOffset: number;
     nameEndOffset: number;
@@ -310,10 +297,10 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
       continue;
     }
 
-    const familyIndex = getOrAssignCteFamily(firstCteName);
+    const colorIndex = getOrAssignCteColor(firstCteName);
     cteSpans.push({
       name: firstCteName,
-      familyIndex,
+      colorIndex,
       headerStartOffset: withMatch.index,
       nameStartOffset,
       nameEndOffset,
@@ -344,10 +331,10 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
         break;
       }
 
-      const nextFamilyIndex = getOrAssignCteFamily(nextCteName);
+      const nextColorIndex = getOrAssignCteColor(nextCteName);
       cteSpans.push({
         name: nextCteName,
-        familyIndex: nextFamilyIndex,
+        colorIndex: nextColorIndex,
         headerStartOffset: cursor,
         nameStartOffset: nextNameStart,
         nameEndOffset: nextNameEnd,
@@ -362,48 +349,43 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
   }
 
   for (const cte of cteSpans) {
-    const baseSlot = getBaseSlot(cte.familyIndex);
-    addMatch(cte.nameStartOffset, cte.nameEndOffset, baseSlot);
-    addMatch(cte.openParenOffset, cte.openParenOffset + 1, baseSlot);
-    addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, baseSlot);
+    addMatch(cte.nameStartOffset, cte.nameEndOffset, cte.colorIndex);
+    addMatch(cte.openParenOffset, cte.openParenOffset + 1, cte.colorIndex);
+    addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, cte.colorIndex);
 
     cteBlocks.push({
       name: cte.name,
-      familyIndex: cte.familyIndex,
+      colorIndex: cte.colorIndex,
       nameStartOffset: cte.nameStartOffset,
       closeParenOffset: cte.closeParenOffset
     });
   }
 
-  const parseRegion = (regionText: string, regionStartOffset: number, enclosingCteFamily: number | null) => {
-    const localSlotMap = new Map<string, number>();
-    let localShadeCounter = 0;
+  const parseRegion = (regionText: string, regionStartOffset: number, enclosingCteColor: number | null) => {
+    const localColorMap = new Map<string, number>();
 
-    const assignLocalEntitySlot = (entityName: string): number => {
+    const assignLocalEntityColor = (entityName: string): number => {
       const lower = entityName.toLowerCase();
 
-      const existingCteFamily = cteFamilyMap.get(lower);
-      if (existingCteFamily !== undefined) {
-        return getBaseSlot(existingCteFamily);
+      // Always preserve the color of a known CTE
+      const existingCteColor = cteColorMap.get(lower);
+      if (existingCteColor !== undefined) {
+        return existingCteColor;
       }
 
-      const existingLocalSlot = localSlotMap.get(lower);
-      if (existingLocalSlot !== undefined) {
-        return existingLocalSlot;
+      const existingLocalColor = localColorMap.get(lower);
+      if (existingLocalColor !== undefined) {
+        return existingLocalColor;
       }
 
-      let slot: number;
-      if (enclosingCteFamily !== null) {
-        slot = getShadeSlot(enclosingCteFamily, localShadeCounter);
-        localShadeCounter++;
-      } else {
-        const fallbackFamily = nextFamilyCounter % familyCount;
-        slot = getShadeSlot(fallbackFamily, localShadeCounter);
-        localShadeCounter++;
-      }
+      // Inside a CTE: local tables/aliases share the exact enclosing CTE color
+      // Outside a CTE: non-CTE tables get the next distinct color from the palette
+      const colorIdx = enclosingCteColor !== null
+        ? enclosingCteColor
+        : (nextColorCounter++ % paletteSize);
 
-      localSlotMap.set(lower, slot);
-      return slot;
+      localColorMap.set(lower, colorIdx);
+      return colorIdx;
     };
 
     const fromJoinRegex = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:\s+AS\s+([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
@@ -423,22 +405,12 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
       const targetAbsStart = regionStartOffset + targetRelStart;
       const targetAbsEnd = targetAbsStart + rawTarget.length;
 
-      let targetSlot: number | undefined;
+      let targetColor: number | undefined;
 
       if (!isJinjaTarget && !SQL_RESERVED_KEYWORDS.has(baseTableName.toLowerCase())) {
-        if (enclosingCteFamily !== null) {
-          const referencedCteFamily = cteFamilyMap.get(baseTableName.toLowerCase());
-          if (referencedCteFamily !== undefined) {
-            targetSlot = getBaseSlot(referencedCteFamily);
-          } else {
-            targetSlot = assignLocalEntitySlot(baseTableName);
-            localSlotMap.set(rawTarget.toLowerCase(), targetSlot);
-          }
-        } else {
-          targetSlot = assignLocalEntitySlot(baseTableName);
-          localSlotMap.set(rawTarget.toLowerCase(), targetSlot);
-        }
-        addMatch(targetAbsStart, targetAbsEnd, targetSlot);
+        targetColor = assignLocalEntityColor(baseTableName);
+        localColorMap.set(rawTarget.toLowerCase(), targetColor);
+        addMatch(targetAbsStart, targetAbsEnd, targetColor);
       }
 
       const candidateAlias = explicitAlias || implicitAlias;
@@ -450,24 +422,16 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
           continue;
         }
 
-        let aliasSlot: number;
-        if (enclosingCteFamily !== null) {
-          if (targetSlot !== undefined && !cteFamilyMap.has(baseTableName.toLowerCase())) {
-            aliasSlot = targetSlot;
-          } else {
-            aliasSlot = getShadeSlot(enclosingCteFamily, localShadeCounter);
-            localShadeCounter++;
-          }
-        } else {
-          aliasSlot = targetSlot !== undefined ? targetSlot : assignLocalEntitySlot(candidateAlias);
-        }
+        const aliasColor = targetColor !== undefined
+          ? targetColor
+          : assignLocalEntityColor(candidateAlias);
 
-        localSlotMap.set(lowerAlias, aliasSlot);
+        localColorMap.set(lowerAlias, aliasColor);
 
         const aliasRelStart = fjMatch.index + fjMatch[0].lastIndexOf(candidateAlias);
         const aliasAbsStart = regionStartOffset + aliasRelStart;
         const aliasAbsEnd = aliasAbsStart + candidateAlias.length;
-        addMatch(aliasAbsStart, aliasAbsEnd, aliasSlot);
+        addMatch(aliasAbsStart, aliasAbsEnd, aliasColor);
       }
     }
 
@@ -476,19 +440,16 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
 
     while ((colMatch = columnRefRegex.exec(regionText)) !== null) {
       const prefix = colMatch[1].toLowerCase();
-      let slot = localSlotMap.get(prefix);
+      let colorIdx = localColorMap.get(prefix);
 
-      if (slot === undefined) {
-        const cteFamily = cteFamilyMap.get(prefix);
-        if (cteFamily !== undefined) {
-          slot = getBaseSlot(cteFamily);
-        }
+      if (colorIdx === undefined) {
+        colorIdx = cteColorMap.get(prefix);
       }
 
-      if (slot !== undefined) {
+      if (colorIdx !== undefined) {
         const startOffset = regionStartOffset + colMatch.index;
         const endOffset = startOffset + colMatch[0].length;
-        addMatch(startOffset, endOffset, slot);
+        addMatch(startOffset, endOffset, colorIdx);
       }
     }
   };
@@ -496,7 +457,7 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
   for (const cte of cteSpans) {
     const bodyStart = cte.openParenOffset + 1;
     const bodyText = sanitized.slice(bodyStart, cte.closeParenOffset);
-    parseRegion(bodyText, bodyStart, cte.familyIndex);
+    parseRegion(bodyText, bodyStart, cte.colorIndex);
   }
 
   let outerSqlChars = sanitized.split('');

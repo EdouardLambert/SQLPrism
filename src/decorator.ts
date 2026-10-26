@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CTE_COLOR_FAMILIES, DATA_TYPE_PALETTE, ThemeColorPair } from './palette';
+import { CTE_PALETTE, DATA_TYPE_PALETTE, ThemeColorPair } from './palette';
 import { parseSqlDocument } from './parser';
 
 export class SqlEntityDecorator {
@@ -21,18 +21,15 @@ export class SqlEntityDecorator {
         dark: { color: pair.dark }
       });
 
-    for (const family of CTE_COLOR_FAMILIES) {
-      this.textDecorationTypes.push(createTextDeco(family.base));
-      for (const shade of family.shades) {
-        this.textDecorationTypes.push(createTextDeco(shade));
-      }
+    for (const colorPair of CTE_PALETTE) {
+      this.textDecorationTypes.push(createTextDeco(colorPair));
 
       const lineDeco = vscode.window.createTextEditorDecorationType({
         isWholeLine: true,
         borderWidth: '0 0 0 1px',
         borderStyle: 'solid',
-        light: { borderColor: `${family.base.light}30` },
-        dark: { borderColor: `${family.base.dark}30` }
+        light: { borderColor: `${colorPair.light}35` },
+        dark: { borderColor: `${colorPair.dark}35` }
       });
       this.cteLineDecorationTypes.push(lineDeco);
     }
@@ -72,18 +69,18 @@ export class SqlEntityDecorator {
     }
 
     const text = editor.document.getText();
-    const { matches, cteBlocks, typeMatches } = parseSqlDocument(text, CTE_COLOR_FAMILIES.length);
+    const { matches, cteBlocks, typeMatches } = parseSqlDocument(text, CTE_PALETTE.length);
 
     // 1. CTE & Entity text decorations + left vertical lines
-    const textRangesBySlot: vscode.Range[][] = this.textDecorationTypes.map(() => []);
-    const lineRangesByFamily: vscode.Range[][] = this.cteLineDecorationTypes.map(() => []);
+    const textRangesByColor: vscode.Range[][] = this.textDecorationTypes.map(() => []);
+    const lineRangesByColor: vscode.Range[][] = this.cteLineDecorationTypes.map(() => []);
 
     if (isCteEnabled) {
       for (const match of matches) {
-        if (match.colorSlotIndex >= 0 && match.colorSlotIndex < this.textDecorationTypes.length) {
+        if (match.colorIndex >= 0 && match.colorIndex < this.textDecorationTypes.length) {
           const startPos = editor.document.positionAt(match.startOffset);
           const endPos = editor.document.positionAt(match.endOffset);
-          textRangesBySlot[match.colorSlotIndex].push(new vscode.Range(startPos, endPos));
+          textRangesByColor[match.colorIndex].push(new vscode.Range(startPos, endPos));
         }
       }
 
@@ -93,7 +90,7 @@ export class SqlEntityDecorator {
           const endLine = editor.document.positionAt(block.closeParenOffset).line;
 
           if (endLine > startLine + 1) {
-            lineRangesByFamily[block.familyIndex].push(
+            lineRangesByColor[block.colorIndex].push(
               new vscode.Range(startLine + 1, 0, endLine - 1, 0)
             );
           }
@@ -102,11 +99,11 @@ export class SqlEntityDecorator {
     }
 
     for (let i = 0; i < this.textDecorationTypes.length; i++) {
-      editor.setDecorations(this.textDecorationTypes[i], textRangesBySlot[i]);
+      editor.setDecorations(this.textDecorationTypes[i], textRangesByColor[i]);
     }
 
     for (let i = 0; i < this.cteLineDecorationTypes.length; i++) {
-      editor.setDecorations(this.cteLineDecorationTypes[i], lineRangesByFamily[i]);
+      editor.setDecorations(this.cteLineDecorationTypes[i], lineRangesByColor[i]);
     }
 
     // 2. Semantic SQL Data Type decorations
