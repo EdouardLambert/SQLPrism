@@ -3,7 +3,7 @@
   "displayName": "SQL Prism",
   "icon": "./icon.png",
   "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, CTE scope lines, and semantic data type highlighting.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "publisher": "elambert",
   "engines": {
     "vscode": "^1.85.0"
@@ -72,6 +72,23 @@
           "default": true,
           "description": "Show a subtle vertical line on the left side of each CTE block."
         },
+        "sqlPrism.keywords.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "targetContext",
+            "cteScope",
+            "hybrid"
+          ],
+          "enumDescriptions": [
+            "Do not color SQL keywords (keep default VS Code theme colors).",
+            "Color relational keywords (FROM, JOIN, AS, ON, USING) with the color of their target table or CTE.",
+            "Color SQL clauses (SELECT, FROM, WHERE, GROUP BY...) inside a CTE with the enclosing CTE's color.",
+            "Combine both: FROM/JOIN/ON match their target entity color, while SELECT/WHERE/GROUP BY inside a CTE match the CTE color."
+          ],
+          "default": "hybrid",
+          "description": "Contextual coloring mode for SQL keywords."
+        },
         "sqlPrism.types.enabled": {
           "type": "boolean",
           "default": true,
@@ -80,6 +97,10 @@
       }
     },
     "commands": [
+      {
+        "command": "sqlPrism.cycleKeywordMode",
+        "title": "SQL Prism: Cycle Keyword Coloring Mode"
+      },
       {
         "command": "sqlPrism.toggleCteLine",
         "title": "SQL Prism: Toggle CTE Left Line"
