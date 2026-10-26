@@ -3,7 +3,7 @@
   "displayName": "SQL Prism",
   "icon": "./icon.png",
   "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, CTE scope lines, and semantic data type highlighting.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "elambert",
   "engines": {
     "vscode": "^1.85.0"
@@ -53,6 +53,19 @@
           ],
           "default": "pastel",
           "description": "Color palette style used for CTEs, tables, and aliases."
+        },
+        "sqlPrism.cte.innerTablesMode": {
+          "type": "string",
+          "enum": [
+            "cteColor",
+            "independent"
+          ],
+          "enumDescriptions": [
+            "Tables and aliases inside a CTE inherit the exact color of their enclosing CTE.",
+            "Tables and aliases inside a CTE receive their own distinct color from the palette, just like in the final SELECT."
+          ],
+          "default": "cteColor",
+          "description": "Coloring behavior for tables and aliases declared inside a CTE."
         },
         "sqlPrism.cte.showLine": {
           "type": "boolean",

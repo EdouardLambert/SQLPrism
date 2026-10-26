@@ -1,5 +1,7 @@
 import { TypeCategoryIndex } from './palette';
 
+export type InnerTablesMode = 'cteColor' | 'independent';
+
 export interface HighlightMatch {
   startOffset: number;
   endOffset: number;
@@ -239,13 +241,18 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
   return typeMatches;
 }
 
-export function parseSqlDocument(rawSql: string, paletteSize: number): ParseResult {
+export function parseSqlDocument(
+  rawSql: string,
+  paletteSize: number,
+  innerTablesMode: InnerTablesMode = 'cteColor'
+): ParseResult {
   const sanitized = sanitizeSql(rawSql);
   const matches: HighlightMatch[] = [];
   const cteBlocks: CteBlock[] = [];
   const recordedSpans = new Set<string>();
 
   const cteColorMap = new Map<string, number>();
+  const globalTableColorMap = new Map<string, number>();
   let nextColorCounter = 0;
 
   const getOrAssignCteColor = (cteName: string): number => {
@@ -254,6 +261,17 @@ export function parseSqlDocument(rawSql: string, paletteSize: number): ParseResu
     if (colorIdx === undefined) {
       colorIdx = nextColorCounter % paletteSize;
       cteColorMap.set(key, colorIdx);
+      nextColorCounter++;
+    }
+    return colorIdx;
+  };
+
+  const getOrAssignIndependentColor = (entityName: string): number => {
+    const key = entityName.toLowerCase();
+    let colorIdx = globalTableColorMap.get(key);
+    if (colorIdx === undefined) {
+      colorIdx = nextColorCounter % paletteSize;
+      globalTableColorMap.set(key, colorIdx);
       nextColorCounter++;
     }
     return colorIdx;
@@ -378,11 +396,14 @@ export function parseSqlDocument(rawSql: string, paletteSize: number): ParseResu
         return existingLocalColor;
       }
 
-      // Inside a CTE: local tables/aliases share the exact enclosing CTE color
-      // Outside a CTE: non-CTE tables get the next distinct color from the palette
-      const colorIdx = enclosingCteColor !== null
+      // Inside a CTE: either inherit the enclosing CTE color ('cteColor')
+      // or assign an independent palette color ('independent')
+      const useEnclosingCteColor =
+        enclosingCteColor !== null && innerTablesMode === 'cteColor';
+
+      const colorIdx = useEnclosingCteColor
         ? enclosingCteColor
-        : (nextColorCounter++ % paletteSize);
+        : getOrAssignIndependentColor(lower);
 
       localColorMap.set(lower, colorIdx);
       return colorIdx;
