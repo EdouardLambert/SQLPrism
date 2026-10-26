@@ -3,7 +3,7 @@
   "displayName": "SQL Prism",
   "icon": "./icon.png",
   "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, CTE scope lines, and semantic data type highlighting.",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "publisher": "elambert",
   "engines": {
     "vscode": "^1.85.0"
@@ -39,12 +39,55 @@
         "sqlPrism.cte.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable hierarchical coloring for CTEs, inner tables, and parentheses."
+          "description": "Enable coloring for CTEs, inner tables, and parentheses."
+        },
+        "sqlPrism.cte.colorStyle": {
+          "type": "string",
+          "enum": [
+            "pastel",
+            "muted"
+          ],
+          "enumDescriptions": [
+            "Bright, high-contrast pastel colors for maximum distinction.",
+            "Softer, toned-down colors with clear hue separation."
+          ],
+          "default": "pastel",
+          "description": "Color palette style used for CTEs, tables, and aliases."
+        },
+        "sqlPrism.cte.innerTablesMode": {
+          "type": "string",
+          "enum": [
+            "cteColor",
+            "independent"
+          ],
+          "enumDescriptions": [
+            "Tables and aliases inside a CTE inherit the exact color of their enclosing CTE.",
+            "Tables and aliases inside a CTE receive their own distinct color from the palette, just like in the final SELECT."
+          ],
+          "default": "cteColor",
+          "description": "Coloring behavior for tables and aliases declared inside a CTE."
         },
         "sqlPrism.cte.showLine": {
           "type": "boolean",
           "default": true,
           "description": "Show a subtle vertical line on the left side of each CTE block."
+        },
+        "sqlPrism.keywords.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "targetContext",
+            "cteScope",
+            "hybrid"
+          ],
+          "enumDescriptions": [
+            "Do not color SQL keywords (keep default VS Code theme colors).",
+            "Color relational keywords (FROM, JOIN, AS, ON, USING) with the color of their target table or CTE.",
+            "Color SQL clauses (SELECT, FROM, WHERE, GROUP BY...) inside a CTE with the enclosing CTE's color.",
+            "Combine both: FROM/JOIN/ON match their target entity color, while SELECT/WHERE/GROUP BY inside a CTE match the CTE color."
+          ],
+          "default": "hybrid",
+          "description": "Contextual coloring mode for SQL keywords."
         },
         "sqlPrism.types.enabled": {
           "type": "boolean",
@@ -54,6 +97,10 @@
       }
     },
     "commands": [
+      {
+        "command": "sqlPrism.cycleKeywordMode",
+        "title": "SQL Prism: Cycle Keyword Coloring Mode"
+      },
       {
         "command": "sqlPrism.toggleCteLine",
         "title": "SQL Prism: Toggle CTE Left Line"

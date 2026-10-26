@@ -3,58 +3,49 @@ export interface ThemeColorPair {
   light: string;
 }
 
-export interface CteColorFamily {
-  base: ThemeColorPair;
-  shades: ThemeColorPair[];
-}
+export type CteColorStyle = 'pastel' | 'muted';
 
-export const SHADES_PER_FAMILY = 1;
-export const SLOTS_PER_FAMILY = 1 + SHADES_PER_FAMILY;
-
-// 8 Colored Neutral CTE families (Distinct hues, but muted/dusty to remain subtle)
-// Ordered to maximize contrast and keep less preferred colors (like Amber) at the end.
-export const CTE_COLOR_FAMILIES: CteColorFamily[] = [
-  // 1. Muted Blue (Bleu Rabattu)
-  {
-    base: { dark: '#6A8CAF', light: '#4A6B8C' },
-    shades: [{ dark: '#85A6C9', light: '#2B4761' }]
-  },
-  // 2. Muted Fern (Fougère Douce) - Swapped up for better contrast with Blue
-  {
-    base: { dark: '#799979', light: '#476E47' },
-    shades: [{ dark: '#94B394', light: '#2A452A' }]
-  },
-  // 3. Dusty Mauve (Mauve Cendré)
-  {
-    base: { dark: '#9980B3', light: '#6F5687' },
-    shades: [{ dark: '#B39CCC', light: '#4C3761' }]
-  },
-  // 4. Dusty Rose (Vieux Rose)
-  {
-    base: { dark: '#B3738A', light: '#8C5163' },
-    shades: [{ dark: '#CC8FA6', light: '#613141' }]
-  },
-  // 5. Slate Teal (Sarcelle Ardoise)
-  {
-    base: { dark: '#669999', light: '#3D6E6E' },
-    shades: [{ dark: '#82B3B3', light: '#234545' }]
-  },
-  // 6. Muted Brick (Brique Douce)
-  {
-    base: { dark: '#B36666', light: '#8C4545' },
-    shades: [{ dark: '#CC8282', light: '#612929' }]
-  },
-  // 7. Muted Olive (Olive Terne)
-  {
-    base: { dark: '#A69F68', light: '#7A7543' },
-    shades: [{ dark: '#C2BB84', light: '#524E27' }]
-  },
-  // 8. Dusty Amber (Ambre Poussiéreux)
-  {
-    base: { dark: '#B38666', light: '#8C623E' },
-    shades: [{ dark: '#CCA182', light: '#613E21' }]
-  }
+export const PASTEL_CTE_PALETTE: ThemeColorPair[] = [
+  // 1. Pastel Sky Blue
+  { dark: '#7DCFFF', light: '#0062A3' },
+  // 2. Pastel Mint / Emerald
+  { dark: '#73DACA', light: '#0D7A5F' },
+  // 3. Pastel Peach / Coral
+  { dark: '#FF9E64', light: '#B84B11' },
+  // 4. Pastel Lavender
+  { dark: '#BB9AF7', light: '#673AB7' },
+  // 5. Pastel Lemon / Butter
+  { dark: '#E0AF68', light: '#8F6200' },
+  // 6. Pastel Rose / Flamingo
+  { dark: '#F7768E', light: '#AD1457' },
+  // 7. Pastel Aqua / Cyan
+  { dark: '#2AC3DE', light: '#007C91' },
+  // 8. Pastel Lime / Pistachio
+  { dark: '#9ECE6A', light: '#3E7516' }
 ];
+
+export const MUTED_CTE_PALETTE: ThemeColorPair[] = [
+  // 1. Steel Blue
+  { dark: '#82AEE3', light: '#2B5B84' },
+  // 2. Sage Green
+  { dark: '#8CC49E', light: '#2E6B47' },
+  // 3. Warm Apricot
+  { dark: '#E0A37B', light: '#9E4B19' },
+  // 4. Soft Amethyst
+  { dark: '#B39DDB', light: '#5E3D82' },
+  // 5. Seafoam Teal
+  { dark: '#76C2C2', light: '#1F6E6E' },
+  // 6. Dusty Coral Rose
+  { dark: '#DE8F9C', light: '#8F3042' },
+  // 7. Warm Sand / Ochre
+  { dark: '#CFC07E', light: '#736218' },
+  // 8. Soft Moss / Olive
+  { dark: '#A8C47C', light: '#47661B' }
+];
+
+export function getCtePalette(style: CteColorStyle): ThemeColorPair[] {
+  return style === 'muted' ? MUTED_CTE_PALETTE : PASTEL_CTE_PALETTE;
+}
 
 export enum TypeCategoryIndex {
   Integer = 0,
@@ -65,8 +56,7 @@ export enum TypeCategoryIndex {
   Complex = 5
 }
 
-// Vibrant semantic palette for explicit SQL data types
-export const TYPE_PALETTE: ThemeColorPair[] = [
+export const DATA_TYPE_PALETTE: ThemeColorPair[] = [
   // 0: Integer (Red / Coral)
   { dark: '#FF5555', light: '#f11501' },
   // 1: Float & Precision (Blue)

@@ -40,12 +40,22 @@ export function activate(context: vscode.ExtensionContext): void {
     await config.update('types.enabled', !currentState, vscode.ConfigurationTarget.Global);
   });
 
+  const cycleKeywordModeSub = vscode.commands.registerCommand('sqlPrism.cycleKeywordMode', async () => {
+    const config = vscode.workspace.getConfiguration('sqlPrism');
+    const modes = ['off', 'targetContext', 'cteScope', 'hybrid'];
+    const current = config.get<string>('keywords.mode', 'hybrid');
+    const next = modes[(modes.indexOf(current) + 1) % modes.length];
+    await config.update('keywords.mode', next, vscode.ConfigurationTarget.Global);
+    vscode.window.setStatusBarMessage(`SQL Prism: Keyword mode set to '${next}'`, 3000);
+  });
+
   context.subscriptions.push(
     activeEditorSub,
     textChangeSub,
     configChangeSub,
     toggleCteLineSub,
     toggleTypesSub,
+    cycleKeywordModeSub,
     { dispose: () => decorator?.dispose() }
   );
 }

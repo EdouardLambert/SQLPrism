@@ -1,9 +1,12 @@
-import { SHADES_PER_FAMILY, SLOTS_PER_FAMILY, TypeCategoryIndex } from './palette';
+import { TypeCategoryIndex } from './palette';
+
+export type InnerTablesMode = 'cteColor' | 'independent';
+export type KeywordColorMode = 'off' | 'cteScope' | 'targetContext' | 'hybrid';
 
 export interface HighlightMatch {
   startOffset: number;
   endOffset: number;
-  colorSlotIndex: number;
+  colorIndex: number;
 }
 
 export interface TypeHighlightMatch {
@@ -14,7 +17,7 @@ export interface TypeHighlightMatch {
 
 export interface CteBlock {
   name: string;
-  familyIndex: number;
+  colorIndex: number;
   nameStartOffset: number;
   closeParenOffset: number;
 }
@@ -159,9 +162,6 @@ function findMatchingCloseParen(sanitized: string, openParenOffset: number): num
   return -1;
 }
 
-/**
- * Finds the top-level "AS <type>" inside a CAST(...) or TRY_CAST(...) body.
- */
 function findTopLevelAsAfterOffset(body: string): number {
   let depth = 0;
   for (let i = 0; i < body.length; i++) {
@@ -211,7 +211,6 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
     }
   };
 
-  // 1. Detect Postgres / DuckDB / Snowflake "::TYPE" casts
   const doubleColonRegex = /::\s*/g;
   let dcMatch: RegExpExecArray | null;
 
@@ -221,7 +220,6 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
     tryMatchTypeAt(remaining, typeStartOffset);
   }
 
-  // 2. Detect standard "CAST(expr AS TYPE)", "TRY_CAST(expr AS TYPE)", "SAFE_CAST(expr AS TYPE)"
   const castFuncRegex = /\b(?:CAST|TRY_CAST|SAFE_CAST)\s*\(/gi;
   let cfMatch: RegExpExecArray | null;
 
@@ -244,45 +242,54 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
   return typeMatches;
 }
 
-function getBaseSlot(familyIndex: number): number {
-  return familyIndex * SLOTS_PER_FAMILY;
-}
-
-function getShadeSlot(familyIndex: number, shadeCounter: number): number {
-  return familyIndex * SLOTS_PER_FAMILY + 1 + (shadeCounter % SHADES_PER_FAMILY);
-}
-
-export function parseSqlDocument(rawSql: string, familyCount: number): ParseResult {
+export function parseSqlDocument(
+  rawSql: string,
+  paletteSize: number,
+  innerTablesMode: InnerTablesMode = 'cteColor',
+  keywordMode: KeywordColorMode = 'off'
+): ParseResult {
   const sanitized = sanitizeSql(rawSql);
   const matches: HighlightMatch[] = [];
   const cteBlocks: CteBlock[] = [];
   const recordedSpans = new Set<string>();
 
-  const cteFamilyMap = new Map<string, number>();
-  let nextFamilyCounter = 0;
+  const cteColorMap = new Map<string, number>();
+  const globalTableColorMap = new Map<string, number>();
+  let nextColorCounter = 0;
 
-  const getOrAssignCteFamily = (cteName: string): number => {
+  const getOrAssignCteColor = (cteName: string): number => {
     const key = cteName.toLowerCase();
-    let familyIdx = cteFamilyMap.get(key);
-    if (familyIdx === undefined) {
-      familyIdx = nextFamilyCounter % familyCount;
-      cteFamilyMap.set(key, familyIdx);
-      nextFamilyCounter++;
+    let colorIdx = cteColorMap.get(key);
+    if (colorIdx === undefined) {
+      colorIdx = nextColorCounter % paletteSize;
+      cteColorMap.set(key, colorIdx);
+      nextColorCounter++;
     }
-    return familyIdx;
+    return colorIdx;
   };
 
-  const addMatch = (startOffset: number, endOffset: number, colorSlotIndex: number) => {
+  const getOrAssignIndependentColor = (entityName: string): number => {
+    const key = entityName.toLowerCase();
+    let colorIdx = globalTableColorMap.get(key);
+    if (colorIdx === undefined) {
+      colorIdx = nextColorCounter % paletteSize;
+      globalTableColorMap.set(key, colorIdx);
+      nextColorCounter++;
+    }
+    return colorIdx;
+  };
+
+  const addMatch = (startOffset: number, endOffset: number, colorIndex: number) => {
     const spanKey = `${startOffset}:${endOffset}`;
     if (!recordedSpans.has(spanKey)) {
       recordedSpans.add(spanKey);
-      matches.push({ startOffset, endOffset, colorSlotIndex });
+      matches.push({ startOffset, endOffset, colorIndex });
     }
   };
 
   interface InternalCteSpan {
     name: string;
-    familyIndex: number;
+    colorIndex: number;
     headerStartOffset: number;
     nameStartOffset: number;
     nameEndOffset: number;
@@ -310,10 +317,10 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
       continue;
     }
 
-    const familyIndex = getOrAssignCteFamily(firstCteName);
+    const colorIndex = getOrAssignCteColor(firstCteName);
     cteSpans.push({
       name: firstCteName,
-      familyIndex,
+      colorIndex,
       headerStartOffset: withMatch.index,
       nameStartOffset,
       nameEndOffset,
@@ -344,10 +351,10 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
         break;
       }
 
-      const nextFamilyIndex = getOrAssignCteFamily(nextCteName);
+      const nextColorIndex = getOrAssignCteColor(nextCteName);
       cteSpans.push({
         name: nextCteName,
-        familyIndex: nextFamilyIndex,
+        colorIndex: nextColorIndex,
         headerStartOffset: cursor,
         nameStartOffset: nextNameStart,
         nameEndOffset: nextNameEnd,
@@ -362,112 +369,163 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
   }
 
   for (const cte of cteSpans) {
-    const baseSlot = getBaseSlot(cte.familyIndex);
-    addMatch(cte.nameStartOffset, cte.nameEndOffset, baseSlot);
-    addMatch(cte.openParenOffset, cte.openParenOffset + 1, baseSlot);
-    addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, baseSlot);
+    addMatch(cte.nameStartOffset, cte.nameEndOffset, cte.colorIndex);
+    addMatch(cte.openParenOffset, cte.openParenOffset + 1, cte.colorIndex);
+    addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, cte.colorIndex);
+
+    // Color the "AS" keyword in "cte_name AS (" when keyword coloring is enabled
+    if (keywordMode !== 'off') {
+      const betweenNameAndParen = sanitized.slice(cte.nameEndOffset, cte.openParenOffset);
+      const asRelMatch = betweenNameAndParen.match(/\bAS\b/i);
+      if (asRelMatch && asRelMatch.index !== undefined) {
+        const asStart = cte.nameEndOffset + asRelMatch.index;
+        addMatch(asStart, asStart + 2, cte.colorIndex);
+      }
+    }
 
     cteBlocks.push({
       name: cte.name,
-      familyIndex: cte.familyIndex,
+      colorIndex: cte.colorIndex,
       nameStartOffset: cte.nameStartOffset,
       closeParenOffset: cte.closeParenOffset
     });
   }
 
-  const parseRegion = (regionText: string, regionStartOffset: number, enclosingCteFamily: number | null) => {
-    const localSlotMap = new Map<string, number>();
-    let localShadeCounter = 0;
+  const parseRegion = (regionText: string, regionStartOffset: number, enclosingCteColor: number | null) => {
+    const localColorMap = new Map<string, number>();
 
-    const assignLocalEntitySlot = (entityName: string): number => {
+    const assignLocalEntityColor = (entityName: string): number => {
       const lower = entityName.toLowerCase();
 
-      const existingCteFamily = cteFamilyMap.get(lower);
-      if (existingCteFamily !== undefined) {
-        return getBaseSlot(existingCteFamily);
+      const existingCteColor = cteColorMap.get(lower);
+      if (existingCteColor !== undefined) {
+        return existingCteColor;
       }
 
-      const existingLocalSlot = localSlotMap.get(lower);
-      if (existingLocalSlot !== undefined) {
-        return existingLocalSlot;
+      const existingLocalColor = localColorMap.get(lower);
+      if (existingLocalColor !== undefined) {
+        return existingLocalColor;
       }
 
-      let slot: number;
-      if (enclosingCteFamily !== null) {
-        slot = getShadeSlot(enclosingCteFamily, localShadeCounter);
-        localShadeCounter++;
-      } else {
-        const fallbackFamily = nextFamilyCounter % familyCount;
-        slot = getShadeSlot(fallbackFamily, localShadeCounter);
-        localShadeCounter++;
-      }
+      const useEnclosingCteColor =
+        enclosingCteColor !== null && innerTablesMode === 'cteColor';
 
-      localSlotMap.set(lower, slot);
-      return slot;
+      const colorIdx = useEnclosingCteColor
+        ? enclosingCteColor
+        : getOrAssignIndependentColor(lower);
+
+      localColorMap.set(lower, colorIdx);
+      return colorIdx;
     };
 
-    const fromJoinRegex = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:\s+AS\s+([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
+    // Match FROM and full JOIN phrases (e.g. LEFT JOIN, FULL OUTER JOIN, INNER JOIN, JOIN)
+    const fromJoinRegex = /\b((?:(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)(?:\s+OUTER)?\s+)?JOIN|FROM)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:(\s+AS\s+)([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
     let fjMatch: RegExpExecArray | null;
 
     while ((fjMatch = fromJoinRegex.exec(regionText)) !== null) {
-      const rawTarget = fjMatch[1];
-      const explicitAlias = fjMatch[2];
-      const implicitAlias = fjMatch[3];
+      const clauseKeyword = fjMatch[1];
+      const rawTarget = fjMatch[2];
+      const asSegment = fjMatch[3];
+      const explicitAlias = fjMatch[4];
+      const implicitAlias = fjMatch[5];
+
+      const clauseKwAbsStart = regionStartOffset + fjMatch.index;
+      const clauseKwAbsEnd = clauseKwAbsStart + clauseKeyword.length;
 
       const isJinjaTarget = rawTarget.startsWith(JINJA_PLACEHOLDER_PREFIX);
       const targetParts = rawTarget.split('.');
       const baseTableName = targetParts[targetParts.length - 1];
 
-      const keywordMatch = fjMatch[0].match(/^\b(?:FROM|JOIN)\s+/i);
-      const targetRelStart = fjMatch.index + (keywordMatch ? keywordMatch[0].length : 0);
+      const prefixMatch = fjMatch[0].match(
+        /^\b(?:(?:(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)(?:\s+OUTER)?\s+)?JOIN|FROM)\s+/i
+      );
+      const targetRelStart = fjMatch.index + (prefixMatch ? prefixMatch[0].length : 0);
       const targetAbsStart = regionStartOffset + targetRelStart;
       const targetAbsEnd = targetAbsStart + rawTarget.length;
 
-      let targetSlot: number | undefined;
+      let targetColor: number | undefined;
 
       if (!isJinjaTarget && !SQL_RESERVED_KEYWORDS.has(baseTableName.toLowerCase())) {
-        if (enclosingCteFamily !== null) {
-          const referencedCteFamily = cteFamilyMap.get(baseTableName.toLowerCase());
-          if (referencedCteFamily !== undefined) {
-            targetSlot = getBaseSlot(referencedCteFamily);
-          } else {
-            targetSlot = assignLocalEntitySlot(baseTableName);
-            localSlotMap.set(rawTarget.toLowerCase(), targetSlot);
-          }
-        } else {
-          targetSlot = assignLocalEntitySlot(baseTableName);
-          localSlotMap.set(rawTarget.toLowerCase(), targetSlot);
-        }
-        addMatch(targetAbsStart, targetAbsEnd, targetSlot);
+        targetColor = assignLocalEntityColor(baseTableName);
+        localColorMap.set(rawTarget.toLowerCase(), targetColor);
+        addMatch(targetAbsStart, targetAbsEnd, targetColor);
       }
+
+      let validAliasColor: number | undefined;
+      let asKeywordAbsSpan: [number, number] | undefined;
+      let clauseEndRelOffset = targetRelStart + rawTarget.length;
 
       const candidateAlias = explicitAlias || implicitAlias;
       if (candidateAlias) {
         const lowerAlias = candidateAlias.toLowerCase();
 
         if (SQL_RESERVED_KEYWORDS.has(lowerAlias) || candidateAlias.startsWith(JINJA_PLACEHOLDER_PREFIX)) {
-          fromJoinRegex.lastIndex = targetRelStart + rawTarget.length;
-          continue;
-        }
-
-        let aliasSlot: number;
-        if (enclosingCteFamily !== null) {
-          if (targetSlot !== undefined && !cteFamilyMap.has(baseTableName.toLowerCase())) {
-            aliasSlot = targetSlot;
-          } else {
-            aliasSlot = getShadeSlot(enclosingCteFamily, localShadeCounter);
-            localShadeCounter++;
-          }
+          // Candidate was actually the next SQL keyword (e.g. ON, WHERE, LEFT); rewind cursor
+          fromJoinRegex.lastIndex = clauseEndRelOffset;
         } else {
-          aliasSlot = targetSlot !== undefined ? targetSlot : assignLocalEntitySlot(candidateAlias);
+          validAliasColor = targetColor !== undefined
+            ? targetColor
+            : assignLocalEntityColor(candidateAlias);
+
+          localColorMap.set(lowerAlias, validAliasColor);
+
+          const aliasRelStart = fjMatch.index + fjMatch[0].lastIndexOf(candidateAlias);
+          const aliasAbsStart = regionStartOffset + aliasRelStart;
+          const aliasAbsEnd = aliasAbsStart + candidateAlias.length;
+          addMatch(aliasAbsStart, aliasAbsEnd, validAliasColor);
+
+          clauseEndRelOffset = aliasRelStart + candidateAlias.length;
+
+          if (asSegment && explicitAlias) {
+            const targetRelEnd = targetRelStart + rawTarget.length;
+            const asTrimRelIdx = regionText.slice(targetRelEnd, aliasRelStart).search(/\bAS\b/i);
+            if (asTrimRelIdx !== -1) {
+              const asAbsStart = regionStartOffset + targetRelEnd + asTrimRelIdx;
+              asKeywordAbsSpan = [asAbsStart, asAbsStart + 2];
+            }
+          }
+        }
+      }
+
+      // Determine contextual keyword color for FROM / JOIN / AS / ON / USING
+      const resolvedEntityColor = validAliasColor ?? targetColor;
+      let relationalKeywordColor: number | undefined;
+
+      if (keywordMode === 'targetContext' || keywordMode === 'hybrid') {
+        relationalKeywordColor = resolvedEntityColor ?? (enclosingCteColor !== null ? enclosingCteColor : undefined);
+      } else if (keywordMode === 'cteScope' && enclosingCteColor !== null) {
+        relationalKeywordColor = enclosingCteColor;
+      }
+
+      if (relationalKeywordColor !== undefined) {
+        addMatch(clauseKwAbsStart, clauseKwAbsEnd, relationalKeywordColor);
+
+        if (asKeywordAbsSpan) {
+          addMatch(asKeywordAbsSpan[0], asKeywordAbsSpan[1], relationalKeywordColor);
         }
 
-        localSlotMap.set(lowerAlias, aliasSlot);
+        // Check if ON or USING immediately follows the FROM/JOIN target/alias
+        const afterClauseSlice = regionText.slice(clauseEndRelOffset);
+        const onUsingMatch = afterClauseSlice.match(/^\s+(ON|USING)\b/i);
+        if (onUsingMatch) {
+          const kwText = onUsingMatch[1];
+          const kwRelOffset = onUsingMatch[0].length - kwText.length;
+          const kwAbsStart = regionStartOffset + clauseEndRelOffset + kwRelOffset;
+          addMatch(kwAbsStart, kwAbsStart + kwText.length, relationalKeywordColor);
+        }
+      }
+    }
 
-        const aliasRelStart = fjMatch.index + fjMatch[0].lastIndexOf(candidateAlias);
-        const aliasAbsStart = regionStartOffset + aliasRelStart;
-        const aliasAbsEnd = aliasAbsStart + candidateAlias.length;
-        addMatch(aliasAbsStart, aliasAbsEnd, aliasSlot);
+    // Color CTE-scoped structural SQL keywords when 'cteScope' or 'hybrid' is enabled
+    if (enclosingCteColor !== null && (keywordMode === 'cteScope' || keywordMode === 'hybrid')) {
+      const structuralKeywordRegex =
+        /\b(SELECT\s+DISTINCT|SELECT|WHERE|GROUP\s+BY|ORDER\s+BY|PARTITION\s+BY|HAVING|QUALIFY|LIMIT|OFFSET|UNION\s+ALL|UNION|INTERSECT|EXCEPT|WINDOW)\b/gi;
+      let skMatch: RegExpExecArray | null;
+
+      while ((skMatch = structuralKeywordRegex.exec(regionText)) !== null) {
+        const kwStart = regionStartOffset + skMatch.index;
+        const kwEnd = kwStart + skMatch[0].length;
+        addMatch(kwStart, kwEnd, enclosingCteColor);
       }
     }
 
@@ -476,19 +534,16 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
 
     while ((colMatch = columnRefRegex.exec(regionText)) !== null) {
       const prefix = colMatch[1].toLowerCase();
-      let slot = localSlotMap.get(prefix);
+      let colorIdx = localColorMap.get(prefix);
 
-      if (slot === undefined) {
-        const cteFamily = cteFamilyMap.get(prefix);
-        if (cteFamily !== undefined) {
-          slot = getBaseSlot(cteFamily);
-        }
+      if (colorIdx === undefined) {
+        colorIdx = cteColorMap.get(prefix);
       }
 
-      if (slot !== undefined) {
+      if (colorIdx !== undefined) {
         const startOffset = regionStartOffset + colMatch.index;
         const endOffset = startOffset + colMatch[0].length;
-        addMatch(startOffset, endOffset, slot);
+        addMatch(startOffset, endOffset, colorIdx);
       }
     }
   };
@@ -496,7 +551,7 @@ export function parseSqlDocument(rawSql: string, familyCount: number): ParseResu
   for (const cte of cteSpans) {
     const bodyStart = cte.openParenOffset + 1;
     const bodyText = sanitized.slice(bodyStart, cte.closeParenOffset);
-    parseRegion(bodyText, bodyStart, cte.familyIndex);
+    parseRegion(bodyText, bodyStart, cte.colorIndex);
   }
 
   let outerSqlChars = sanitized.split('');
