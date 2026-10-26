@@ -3,7 +3,7 @@
   "displayName": "SQL Prism",
   "icon": "./icon.png",
   "description": "Visual readability for SQL & dbt: distinct base colors for CTEs, derived shades for inner tables/aliases, CTE scope lines, and semantic data type highlighting.",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "elambert",
   "engines": {
     "vscode": "^1.85.0"
@@ -39,7 +39,20 @@
         "sqlPrism.cte.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable hierarchical coloring for CTEs, inner tables, and parentheses."
+          "description": "Enable coloring for CTEs, inner tables, and parentheses."
+        },
+        "sqlPrism.cte.colorStyle": {
+          "type": "string",
+          "enum": [
+            "pastel",
+            "muted"
+          ],
+          "enumDescriptions": [
+            "Bright, high-contrast pastel colors for maximum distinction.",
+            "Softer, toned-down colors with clear hue separation."
+          ],
+          "default": "pastel",
+          "description": "Color palette style used for CTEs, tables, and aliases."
         },
         "sqlPrism.cte.showLine": {
           "type": "boolean",

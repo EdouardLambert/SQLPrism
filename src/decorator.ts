@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CTE_PALETTE, DATA_TYPE_PALETTE, ThemeColorPair } from './palette';
+import { CteColorStyle, getCtePalette, DATA_TYPE_PALETTE, ThemeColorPair } from './palette';
 import { parseSqlDocument } from './parser';
 
 export class SqlEntityDecorator {
@@ -12,8 +12,16 @@ export class SqlEntityDecorator {
     this.initializeDecorationPool();
   }
 
+  private getConfiguredColorStyle(): CteColorStyle {
+    const config = vscode.workspace.getConfiguration('sqlPrism');
+    const style = config.get<string>('cte.colorStyle', 'pastel');
+    return style === 'muted' ? 'muted' : 'pastel';
+  }
+
   public initializeDecorationPool(): void {
     this.disposeDecorations();
+
+    const activeCtePalette = getCtePalette(this.getConfiguredColorStyle());
 
     const createTextDeco = (pair: ThemeColorPair) =>
       vscode.window.createTextEditorDecorationType({
@@ -21,7 +29,7 @@ export class SqlEntityDecorator {
         dark: { color: pair.dark }
       });
 
-    for (const colorPair of CTE_PALETTE) {
+    for (const colorPair of activeCtePalette) {
       this.textDecorationTypes.push(createTextDeco(colorPair));
 
       const lineDeco = vscode.window.createTextEditorDecorationType({
@@ -69,7 +77,10 @@ export class SqlEntityDecorator {
     }
 
     const text = editor.document.getText();
-    const { matches, cteBlocks, typeMatches } = parseSqlDocument(text, CTE_PALETTE.length);
+    const { matches, cteBlocks, typeMatches } = parseSqlDocument(
+      text,
+      this.textDecorationTypes.length
+    );
 
     // 1. CTE & Entity text decorations + left vertical lines
     const textRangesByColor: vscode.Range[][] = this.textDecorationTypes.map(() => []);

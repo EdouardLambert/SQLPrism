@@ -3,7 +3,9 @@ export interface ThemeColorPair {
   light: string;
 }
 
-export const CTE_PALETTE: ThemeColorPair[] = [
+export type CteColorStyle = 'pastel' | 'muted';
+
+export const PASTEL_CTE_PALETTE: ThemeColorPair[] = [
   // 1. Pastel Sky Blue
   { dark: '#7DCFFF', light: '#0062A3' },
   // 2. Pastel Mint / Emerald
@@ -21,6 +23,29 @@ export const CTE_PALETTE: ThemeColorPair[] = [
   // 8. Pastel Lime / Pistachio
   { dark: '#9ECE6A', light: '#3E7516' }
 ];
+
+export const MUTED_CTE_PALETTE: ThemeColorPair[] = [
+  // 1. Steel Blue
+  { dark: '#82AEE3', light: '#2B5B84' },
+  // 2. Sage Green
+  { dark: '#8CC49E', light: '#2E6B47' },
+  // 3. Warm Apricot
+  { dark: '#E0A37B', light: '#9E4B19' },
+  // 4. Soft Amethyst
+  { dark: '#B39DDB', light: '#5E3D82' },
+  // 5. Seafoam Teal
+  { dark: '#76C2C2', light: '#1F6E6E' },
+  // 6. Dusty Coral Rose
+  { dark: '#DE8F9C', light: '#8F3042' },
+  // 7. Warm Sand / Ochre
+  { dark: '#CFC07E', light: '#736218' },
+  // 8. Soft Moss / Olive
+  { dark: '#A8C47C', light: '#47661B' }
+];
+
+export function getCtePalette(style: CteColorStyle): ThemeColorPair[] {
+  return style === 'muted' ? MUTED_CTE_PALETTE : PASTEL_CTE_PALETTE;
+}
 
 export enum TypeCategoryIndex {
   Integer = 0,
