@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { CteColorStyle, getCtePalette, DATA_TYPE_PALETTE, ThemeColorPair } from './palette';
-import { InnerTablesMode, parseSqlDocument } from './parser';
+import { InnerTablesMode, KeywordColorMode, parseSqlDocument } from './parser';
 
 export class SqlEntityDecorator {
   private textDecorationTypes: vscode.TextEditorDecorationType[] = [];
@@ -72,6 +72,13 @@ export class SqlEntityDecorator {
     const rawInnerMode = config.get<string>('cte.innerTablesMode', 'cteColor');
     const innerTablesMode: InnerTablesMode =
       rawInnerMode === 'independent' ? 'independent' : 'cteColor';
+
+    const rawKeywordMode = config.get<string>('keywords.mode', 'hybrid');
+    const validKeywordModes: KeywordColorMode[] = ['off', 'cteScope', 'targetContext', 'hybrid'];
+    const keywordMode: KeywordColorMode = validKeywordModes.includes(rawKeywordMode as KeywordColorMode)
+      ? (rawKeywordMode as KeywordColorMode)
+      : 'hybrid';
+
     const isTypesEnabled = config.get<boolean>('types.enabled', true);
 
     if (!isCteEnabled && !isTypesEnabled) {
@@ -83,7 +90,8 @@ export class SqlEntityDecorator {
     const { matches, cteBlocks, typeMatches } = parseSqlDocument(
       text,
       this.textDecorationTypes.length,
-      innerTablesMode
+      innerTablesMode,
+      keywordMode
     );
 
     // 1. CTE & Entity text decorations + left vertical lines
