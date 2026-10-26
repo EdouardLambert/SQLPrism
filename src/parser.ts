@@ -1,6 +1,7 @@
 import { TypeCategoryIndex } from './palette';
 
 export type InnerTablesMode = 'cteColor' | 'independent';
+export type KeywordColorMode = 'off' | 'cteScope' | 'targetContext' | 'hybrid';
 
 export interface HighlightMatch {
   startOffset: number;
@@ -244,7 +245,8 @@ function parseDataTypes(sanitized: string): TypeHighlightMatch[] {
 export function parseSqlDocument(
   rawSql: string,
   paletteSize: number,
-  innerTablesMode: InnerTablesMode = 'cteColor'
+  innerTablesMode: InnerTablesMode = 'cteColor',
+  keywordMode: KeywordColorMode = 'off'
 ): ParseResult {
   const sanitized = sanitizeSql(rawSql);
   const matches: HighlightMatch[] = [];
@@ -371,6 +373,16 @@ export function parseSqlDocument(
     addMatch(cte.openParenOffset, cte.openParenOffset + 1, cte.colorIndex);
     addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, cte.colorIndex);
 
+    // Color the "AS" keyword in "cte_name AS (" when keyword coloring is enabled
+    if (keywordMode !== 'off') {
+      const betweenNameAndParen = sanitized.slice(cte.nameEndOffset, cte.openParenOffset);
+      const asRelMatch = betweenNameAndParen.match(/\bAS\b/i);
+      if (asRelMatch && asRelMatch.index !== undefined) {
+        const asStart = cte.nameEndOffset + asRelMatch.index;
+        addMatch(asStart, asStart + 2, cte.colorIndex);
+      }
+    }
+
     cteBlocks.push({
       name: cte.name,
       colorIndex: cte.colorIndex,
@@ -385,7 +397,6 @@ export function parseSqlDocument(
     const assignLocalEntityColor = (entityName: string): number => {
       const lower = entityName.toLowerCase();
 
-      // Always preserve the color of a known CTE
       const existingCteColor = cteColorMap.get(lower);
       if (existingCteColor !== undefined) {
         return existingCteColor;
@@ -396,8 +407,6 @@ export function parseSqlDocument(
         return existingLocalColor;
       }
 
-      // Inside a CTE: either inherit the enclosing CTE color ('cteColor')
-      // or assign an independent palette color ('independent')
       const useEnclosingCteColor =
         enclosingCteColor !== null && innerTablesMode === 'cteColor';
 
@@ -409,20 +418,28 @@ export function parseSqlDocument(
       return colorIdx;
     };
 
-    const fromJoinRegex = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:\s+AS\s+([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
+    // Match FROM and full JOIN phrases (e.g. LEFT JOIN, FULL OUTER JOIN, INNER JOIN, JOIN)
+    const fromJoinRegex = /\b((?:(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)(?:\s+OUTER)?\s+)?JOIN|FROM)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:(\s+AS\s+)([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
     let fjMatch: RegExpExecArray | null;
 
     while ((fjMatch = fromJoinRegex.exec(regionText)) !== null) {
-      const rawTarget = fjMatch[1];
-      const explicitAlias = fjMatch[2];
-      const implicitAlias = fjMatch[3];
+      const clauseKeyword = fjMatch[1];
+      const rawTarget = fjMatch[2];
+      const asSegment = fjMatch[3];
+      const explicitAlias = fjMatch[4];
+      const implicitAlias = fjMatch[5];
+
+      const clauseKwAbsStart = regionStartOffset + fjMatch.index;
+      const clauseKwAbsEnd = clauseKwAbsStart + clauseKeyword.length;
 
       const isJinjaTarget = rawTarget.startsWith(JINJA_PLACEHOLDER_PREFIX);
       const targetParts = rawTarget.split('.');
       const baseTableName = targetParts[targetParts.length - 1];
 
-      const keywordMatch = fjMatch[0].match(/^\b(?:FROM|JOIN)\s+/i);
-      const targetRelStart = fjMatch.index + (keywordMatch ? keywordMatch[0].length : 0);
+      const prefixMatch = fjMatch[0].match(
+        /^\b(?:(?:(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)(?:\s+OUTER)?\s+)?JOIN|FROM)\s+/i
+      );
+      const targetRelStart = fjMatch.index + (prefixMatch ? prefixMatch[0].length : 0);
       const targetAbsStart = regionStartOffset + targetRelStart;
       const targetAbsEnd = targetAbsStart + rawTarget.length;
 
@@ -434,25 +451,81 @@ export function parseSqlDocument(
         addMatch(targetAbsStart, targetAbsEnd, targetColor);
       }
 
+      let validAliasColor: number | undefined;
+      let asKeywordAbsSpan: [number, number] | undefined;
+      let clauseEndRelOffset = targetRelStart + rawTarget.length;
+
       const candidateAlias = explicitAlias || implicitAlias;
       if (candidateAlias) {
         const lowerAlias = candidateAlias.toLowerCase();
 
         if (SQL_RESERVED_KEYWORDS.has(lowerAlias) || candidateAlias.startsWith(JINJA_PLACEHOLDER_PREFIX)) {
-          fromJoinRegex.lastIndex = targetRelStart + rawTarget.length;
-          continue;
+          // Candidate was actually the next SQL keyword (e.g. ON, WHERE, LEFT); rewind cursor
+          fromJoinRegex.lastIndex = clauseEndRelOffset;
+        } else {
+          validAliasColor = targetColor !== undefined
+            ? targetColor
+            : assignLocalEntityColor(candidateAlias);
+
+          localColorMap.set(lowerAlias, validAliasColor);
+
+          const aliasRelStart = fjMatch.index + fjMatch[0].lastIndexOf(candidateAlias);
+          const aliasAbsStart = regionStartOffset + aliasRelStart;
+          const aliasAbsEnd = aliasAbsStart + candidateAlias.length;
+          addMatch(aliasAbsStart, aliasAbsEnd, validAliasColor);
+
+          clauseEndRelOffset = aliasRelStart + candidateAlias.length;
+
+          if (asSegment && explicitAlias) {
+            const targetRelEnd = targetRelStart + rawTarget.length;
+            const asTrimRelIdx = regionText.slice(targetRelEnd, aliasRelStart).search(/\bAS\b/i);
+            if (asTrimRelIdx !== -1) {
+              const asAbsStart = regionStartOffset + targetRelEnd + asTrimRelIdx;
+              asKeywordAbsSpan = [asAbsStart, asAbsStart + 2];
+            }
+          }
+        }
+      }
+
+      // Determine contextual keyword color for FROM / JOIN / AS / ON / USING
+      const resolvedEntityColor = validAliasColor ?? targetColor;
+      let relationalKeywordColor: number | undefined;
+
+      if (keywordMode === 'targetContext' || keywordMode === 'hybrid') {
+        relationalKeywordColor = resolvedEntityColor ?? (enclosingCteColor !== null ? enclosingCteColor : undefined);
+      } else if (keywordMode === 'cteScope' && enclosingCteColor !== null) {
+        relationalKeywordColor = enclosingCteColor;
+      }
+
+      if (relationalKeywordColor !== undefined) {
+        addMatch(clauseKwAbsStart, clauseKwAbsEnd, relationalKeywordColor);
+
+        if (asKeywordAbsSpan) {
+          addMatch(asKeywordAbsSpan[0], asKeywordAbsSpan[1], relationalKeywordColor);
         }
 
-        const aliasColor = targetColor !== undefined
-          ? targetColor
-          : assignLocalEntityColor(candidateAlias);
+        // Check if ON or USING immediately follows the FROM/JOIN target/alias
+        const afterClauseSlice = regionText.slice(clauseEndRelOffset);
+        const onUsingMatch = afterClauseSlice.match(/^\s+(ON|USING)\b/i);
+        if (onUsingMatch) {
+          const kwText = onUsingMatch[1];
+          const kwRelOffset = onUsingMatch[0].length - kwText.length;
+          const kwAbsStart = regionStartOffset + clauseEndRelOffset + kwRelOffset;
+          addMatch(kwAbsStart, kwAbsStart + kwText.length, relationalKeywordColor);
+        }
+      }
+    }
 
-        localColorMap.set(lowerAlias, aliasColor);
+    // Color CTE-scoped structural SQL keywords when 'cteScope' or 'hybrid' is enabled
+    if (enclosingCteColor !== null && (keywordMode === 'cteScope' || keywordMode === 'hybrid')) {
+      const structuralKeywordRegex =
+        /\b(SELECT\s+DISTINCT|SELECT|WHERE|GROUP\s+BY|ORDER\s+BY|PARTITION\s+BY|HAVING|QUALIFY|LIMIT|OFFSET|UNION\s+ALL|UNION|INTERSECT|EXCEPT|WINDOW)\b/gi;
+      let skMatch: RegExpExecArray | null;
 
-        const aliasRelStart = fjMatch.index + fjMatch[0].lastIndexOf(candidateAlias);
-        const aliasAbsStart = regionStartOffset + aliasRelStart;
-        const aliasAbsEnd = aliasAbsStart + candidateAlias.length;
-        addMatch(aliasAbsStart, aliasAbsEnd, aliasColor);
+      while ((skMatch = structuralKeywordRegex.exec(regionText)) !== null) {
+        const kwStart = regionStartOffset + skMatch.index;
+        const kwEnd = kwStart + skMatch[0].length;
+        addMatch(kwStart, kwEnd, enclosingCteColor);
       }
     }
 
