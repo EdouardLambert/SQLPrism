@@ -298,6 +298,7 @@ export function parseSqlDocument(
   }
 
   const cteSpans: InternalCteSpan[] = [];
+  const recordedCteOpenParens = new Set<number>();
   const withStartRegex = /\bWITH(?:\s+RECURSIVE)?\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/gi;
   let withMatch: RegExpExecArray | null;
 
@@ -313,14 +314,14 @@ export function parseSqlDocument(
     const openParenOffset = withMatch.index + withMatch[0].length - 1;
     const closeParenOffset = findMatchingCloseParen(sanitized, openParenOffset);
 
-    if (closeParenOffset === -1) {
+    if (closeParenOffset === -1 || recordedCteOpenParens.has(openParenOffset)) {
       continue;
     }
 
-    const colorIndex = getOrAssignCteColor(firstCteName);
+    recordedCteOpenParens.add(openParenOffset);
     cteSpans.push({
       name: firstCteName,
-      colorIndex,
+      colorIndex: -1,
       headerStartOffset: withMatch.index,
       nameStartOffset,
       nameEndOffset,
@@ -351,24 +352,29 @@ export function parseSqlDocument(
         break;
       }
 
-      const nextColorIndex = getOrAssignCteColor(nextCteName);
-      cteSpans.push({
-        name: nextCteName,
-        colorIndex: nextColorIndex,
-        headerStartOffset: cursor,
-        nameStartOffset: nextNameStart,
-        nameEndOffset: nextNameEnd,
-        openParenOffset: nextOpenParen,
-        closeParenOffset: nextCloseParen
-      });
+      if (!recordedCteOpenParens.has(nextOpenParen)) {
+        recordedCteOpenParens.add(nextOpenParen);
+        cteSpans.push({
+          name: nextCteName,
+          colorIndex: -1,
+          headerStartOffset: cursor,
+          nameStartOffset: nextNameStart,
+          nameEndOffset: nextNameEnd,
+          openParenOffset: nextOpenParen,
+          closeParenOffset: nextCloseParen
+        });
+      }
 
       cursor = nextCloseParen + 1;
     }
 
-    withStartRegex.lastIndex = cursor;
   }
 
+  cteSpans.sort((a, b) => a.nameStartOffset - b.nameStartOffset);
+
   for (const cte of cteSpans) {
+    cte.colorIndex = getOrAssignCteColor(cte.name);
+
     addMatch(cte.nameStartOffset, cte.nameEndOffset, cte.colorIndex);
     addMatch(cte.openParenOffset, cte.openParenOffset + 1, cte.colorIndex);
     addMatch(cte.closeParenOffset, cte.closeParenOffset + 1, cte.colorIndex);
@@ -418,7 +424,6 @@ export function parseSqlDocument(
       return colorIdx;
     };
 
-    // Match FROM and full JOIN phrases (e.g. LEFT JOIN, FULL OUTER JOIN, INNER JOIN, JOIN)
     const fromJoinRegex = /\b((?:(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)(?:\s+OUTER)?\s+)?JOIN|FROM)\s+([a-zA-Z_][a-zA-Z0-9_.]*)(?:(\s+AS\s+)([a-zA-Z_][a-zA-Z0-9_]*)|\s+([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
     let fjMatch: RegExpExecArray | null;
 
@@ -460,7 +465,6 @@ export function parseSqlDocument(
         const lowerAlias = candidateAlias.toLowerCase();
 
         if (SQL_RESERVED_KEYWORDS.has(lowerAlias) || candidateAlias.startsWith(JINJA_PLACEHOLDER_PREFIX)) {
-          // Candidate was actually the next SQL keyword (e.g. ON, WHERE, LEFT); rewind cursor
           fromJoinRegex.lastIndex = clauseEndRelOffset;
         } else {
           validAliasColor = targetColor !== undefined
@@ -487,7 +491,6 @@ export function parseSqlDocument(
         }
       }
 
-      // Determine contextual keyword color for FROM / JOIN / AS / ON / USING
       const resolvedEntityColor = validAliasColor ?? targetColor;
       let relationalKeywordColor: number | undefined;
 
@@ -504,7 +507,6 @@ export function parseSqlDocument(
           addMatch(asKeywordAbsSpan[0], asKeywordAbsSpan[1], relationalKeywordColor);
         }
 
-        // Check if ON or USING immediately follows the FROM/JOIN target/alias
         const afterClauseSlice = regionText.slice(clauseEndRelOffset);
         const onUsingMatch = afterClauseSlice.match(/^\s+(ON|USING)\b/i);
         if (onUsingMatch) {
@@ -516,7 +518,6 @@ export function parseSqlDocument(
       }
     }
 
-    // Color CTE-scoped structural SQL keywords when 'cteScope' or 'hybrid' is enabled
     if (enclosingCteColor !== null && (keywordMode === 'cteScope' || keywordMode === 'hybrid')) {
       const structuralKeywordRegex =
         /\b(SELECT\s+DISTINCT|SELECT|WHERE|GROUP\s+BY|ORDER\s+BY|PARTITION\s+BY|HAVING|QUALIFY|LIMIT|OFFSET|UNION\s+ALL|UNION|INTERSECT|EXCEPT|WINDOW)\b/gi;
@@ -548,21 +549,24 @@ export function parseSqlDocument(
     }
   };
 
-  for (const cte of cteSpans) {
-    const bodyStart = cte.openParenOffset + 1;
-    const bodyText = sanitized.slice(bodyStart, cte.closeParenOffset);
-    parseRegion(bodyText, bodyStart, cte.colorIndex);
-  }
+  const workingSqlChars = sanitized.split('');
+  const ctesByInnermostFirst = [...cteSpans].sort(
+    (a, b) => (a.closeParenOffset - a.openParenOffset) - (b.closeParenOffset - b.openParenOffset)
+  );
 
-  let outerSqlChars = sanitized.split('');
-  for (const cte of cteSpans) {
+  for (const cte of ctesByInnermostFirst) {
+    const bodyStart = cte.openParenOffset + 1;
+    const bodyText = workingSqlChars.slice(bodyStart, cte.closeParenOffset).join('');
+    parseRegion(bodyText, bodyStart, cte.colorIndex);
+
     for (let i = cte.headerStartOffset; i <= cte.closeParenOffset; i++) {
-      if (outerSqlChars[i] !== '\n' && outerSqlChars[i] !== '\r') {
-        outerSqlChars[i] = ' ';
+      if (workingSqlChars[i] !== '\n' && workingSqlChars[i] !== '\r') {
+        workingSqlChars[i] = ' ';
       }
     }
   }
-  const outerSql = outerSqlChars.join('');
+
+  const outerSql = workingSqlChars.join('');
   parseRegion(outerSql, 0, null);
 
   const typeMatches = parseDataTypes(sanitized);
