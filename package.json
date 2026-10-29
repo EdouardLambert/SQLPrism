@@ -93,6 +93,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable semantic coloring for SQL data types in casts (:: and CAST/TRY_CAST)."
+        },
+        "sqlPrism.dbt.targetPath": {
+          "type": "string",
+          "default": "target",
+          "description": "Relative folder name where dbt generates manifest.json and catalog.json."
         }
       }
     },
@@ -108,6 +113,10 @@
       {
         "command": "sqlPrism.toggleTypes",
         "title": "SQL Prism: Toggle Type Coloring"
+      },
+      {
+        "command": "sqlPrism.reloadDbtMetadata",
+        "title": "SQL Prism: Reload dbt Metadata"
       }
     ]
   },
