@@ -94,7 +94,6 @@ export class SqlEntityDecorator {
       keywordMode
     );
 
-    // 1. CTE & Entity text decorations + left vertical lines
     const textRangesByColor: vscode.Range[][] = this.textDecorationTypes.map(() => []);
     const lineRangesByColor: vscode.Range[][] = this.cteLineDecorationTypes.map(() => []);
 
@@ -108,14 +107,24 @@ export class SqlEntityDecorator {
       }
 
       if (showCteLine) {
-        for (const block of cteBlocks) {
+        // Sort outermost first so innermost nested CTEs override the line color on their body lines
+        const sortedBlocks = [...cteBlocks].sort(
+          (a, b) => (b.closeParenOffset - b.nameStartOffset) - (a.closeParenOffset - a.nameStartOffset)
+        );
+        const lineColorMap = new Map<number, number>();
+
+        for (const block of sortedBlocks) {
           const startLine = editor.document.positionAt(block.nameStartOffset).line;
           const endLine = editor.document.positionAt(block.closeParenOffset).line;
 
-          if (endLine > startLine + 1) {
-            lineRangesByColor[block.colorIndex].push(
-              new vscode.Range(startLine + 1, 0, endLine - 1, 0)
-            );
+          for (let line = startLine + 1; line <= endLine - 1; line++) {
+            lineColorMap.set(line, block.colorIndex);
+          }
+        }
+
+        for (const [line, colorIdx] of lineColorMap.entries()) {
+          if (colorIdx >= 0 && colorIdx < lineRangesByColor.length) {
+            lineRangesByColor[colorIdx].push(new vscode.Range(line, 0, line, 0));
           }
         }
       }
@@ -129,7 +138,6 @@ export class SqlEntityDecorator {
       editor.setDecorations(this.cteLineDecorationTypes[i], lineRangesByColor[i]);
     }
 
-    // 2. Semantic SQL Data Type decorations
     const typeRangesByCategory: vscode.Range[][] = this.typeDecorationTypes.map(() => []);
 
     if (isTypesEnabled) {
