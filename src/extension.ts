@@ -1,13 +1,10 @@
 import * as vscode from 'vscode';
 import { SqlEntityDecorator } from './decorator';
-import { DbtTargetIndexer } from './dbt/dbtIndexer';
 
 let decorator: SqlEntityDecorator | undefined;
-let dbtIndexer: DbtTargetIndexer | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   decorator = new SqlEntityDecorator();
-  dbtIndexer = new DbtTargetIndexer();
 
   if (vscode.window.activeTextEditor) {
     decorator.triggerUpdate(vscode.window.activeTextEditor, true);
@@ -28,11 +25,6 @@ export function activate(context: vscode.ExtensionContext): void {
     if (event.affectsConfiguration('sqlPrism')) {
       decorator?.initializeDecorationPool();
       decorator?.triggerUpdate(vscode.window.activeTextEditor, true);
-
-      if (event.affectsConfiguration('sqlPrism.dbt.targetPath')) {
-        dbtIndexer?.setupFileWatcher();
-        void dbtIndexer?.reloadIndex(true);
-      }
     }
   });
 
@@ -57,10 +49,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.setStatusBarMessage(`SQL Prism: Keyword mode set to '${next}'`, 3000);
   });
 
-  const reloadDbtMetadataSub = vscode.commands.registerCommand('sqlPrism.reloadDbtMetadata', async () => {
-    await dbtIndexer?.reloadIndex(true);
-  });
-
   context.subscriptions.push(
     activeEditorSub,
     textChangeSub,
@@ -68,13 +56,10 @@ export function activate(context: vscode.ExtensionContext): void {
     toggleCteLineSub,
     toggleTypesSub,
     cycleKeywordModeSub,
-    reloadDbtMetadataSub,
-    { dispose: () => decorator?.dispose() },
-    { dispose: () => dbtIndexer?.dispose() }
+    { dispose: () => decorator?.dispose() }
   );
 }
 
 export function deactivate(): void {
   decorator?.dispose();
-  dbtIndexer?.dispose();
 }
